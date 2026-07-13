@@ -70,158 +70,388 @@ const SUBURBS = [
   { name: "Wentworthville", postcode: "2145", cbdMin: 39, line: "T5" },
 ];
 
-function extractPrice(display) {
-  if (!display) return 9999;
-  const m = display.replace(/,/g, "").match(/\$?([\d]+)/);
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function priceVal(str) {
+  if (!str) return 9999;
+  const m = String(str).replace(/,/g, '').match(/\$?([\d]+)/);
   return m ? parseInt(m[1]) : 9999;
 }
 
-// Domain.com.au API — POST /v1/listings/residential/_search
-// Supports multiple locations in one request; free tier = 100 req/day
-async function searchDomain(suburbs, maxPrice, minBeds, apiKey) {
-  const byPostcode = {};
-  const byName = {};
-  for (const s of suburbs) {
-    byPostcode[s.postcode] = s;
-    byName[s.name.toLowerCase()] = s;
-  }
-
-  // Batch into groups of 20 locations to stay under URL/body limits
-  const BATCH = 20;
-  const batches = [];
-  for (let i = 0; i < suburbs.length; i += BATCH) {
-    batches.push(suburbs.slice(i, i + BATCH));
-  }
-
-  const settled = await Promise.allSettled(
-    batches.map((batch) =>
-      fetch("https://api.domain.com.au/v1/listings/residential/_search", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          "X-Api-Key": apiKey,
-        },
-        body: JSON.stringify({
-          listingType: "Rent",
-          minBedrooms: minBeds > 0 ? minBeds : undefined,
-          maxPrice,
-          locations: batch.map((s) => ({
-            state: "NSW",
-            suburb: s.name,
-            postCode: s.postcode,
-          })),
-          pageSize: 200,
-          page: 1,
-          sort: { sortKey: "Price", direction: "Ascending" },
-        }),
-      }).then((r) => {
-        if (!r.ok) throw new Error(`Domain API ${r.status}`);
-        return r.json();
-      })
-    )
-  );
-
-  const all = [];
-  let anyBatchOk = false;
-  for (const result of settled) {
-    if (result.status === "rejected") continue;
-    anyBatchOk = true;
-    for (const item of result.value || []) {
-      const listing = item.listing || item;
-      const pd = listing.propertyDetails || {};
-      const price = listing.priceDetails?.displayPrice || "";
-      const postcode = pd.postCode || "";
-      const suburb = (pd.suburb || "").toLowerCase();
-      const info = byPostcode[postcode] || byName[suburb];
-
-      // First non-floor-plan photo
-      let image = null;
-      for (const m of listing.media || []) {
-        if (m.category === "Image") {
-          image = m.url;
-          break;
-        }
-      }
-
-      all.push({
-        id: String(listing.id || ""),
-        url: listing.propertyUrl
-          ? `https://www.domain.com.au${listing.propertyUrl}`
-          : `https://www.domain.com.au/${listing.id}`,
-        address:
-          listing.displayableAddress ||
-          pd.displayableAddress ||
-          `${pd.suburb}, NSW`,
-        suburb: pd.suburb || "",
-        postcode,
-        price,
-        priceValue: extractPrice(price),
-        bedrooms: pd.bedrooms ?? null,
-        bathrooms: pd.bathrooms ?? null,
-        parking: pd.carspaces ?? null,
-        propertyType: pd.propertyType || "",
-        image,
-        cbdMin: info?.cbdMin ?? null,
-        line: info?.line ?? null,
-      });
+function matchSuburb(address, suburbs) {
+  if (!address) return null;
+  const addr = String(address);
+  // Postcode match is most reliable — addresses end with ", NSW, 2042" or similar
+  const pcm = addr.match(/\b(\d{4})\b/);
+  if (pcm) {
+    for (const s of suburbs) {
+      if (s.postcode === pcm[1]) return s;
     }
   }
+  // Fallback: suburb name surrounded by punctuation/word boundaries
+  const lower = addr.toLowerCase();
+  for (const s of suburbs) {
+    const n = s.name.toLowerCase();
+    if (lower.includes(`, ${n},`) || lower.includes(`, ${n} nsw`) || lower.endsWith(`, ${n}`)) {
+      return s;
+    }
+  }
+  return null;
+}
 
-  all.sort((a, b) => a.priceValue - b.priceValue);
-  return { listings: all, anyBatchOk };
+const HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+  'Accept-Language': 'en-AU,en-US;q=0.9,en;q=0.8',
+};
+
+// ─── Elders Real Estate ───────────────────────────────────────────────────────
+// Server-rendered HTML — confirmed no bot protection.
+
+async function scrapeEldersPage(url, qualifying, maxPrice, minBeds) {
+  const resp = await fetch(url, {
+    headers: { ...HEADERS, Referer: 'https://www.eldersrealestate.com.au/' },
+  });
+  if (!resp.ok) return [];
+
+  const results = [];
+  let cur = null;
+  let fld = '';
+
+  await new HTMLRewriter()
+    .on('.property-card', {
+      element(el) {
+        cur = {
+          id: el.getAttribute('data-listing-id') || '',
+          price: '', address: '', url: '',
+          image: null, bedrooms: null, bathrooms: null, parking: null,
+        };
+        fld = '';
+        el.onEndTag(() => {
+          const c = cur; cur = null; fld = '';
+          if (!c?.price || !c?.address) return;
+          if (priceVal(c.price) > maxPrice) return;
+          if (minBeds > 0 && c.bedrooms !== null && c.bedrooms < minBeds) return;
+          const info = matchSuburb(c.address, qualifying);
+          if (!info) return;
+          results.push({
+            id: `elders-${c.id || encodeURIComponent(c.url)}`,
+            url: c.url || 'https://www.eldersrealestate.com.au/residential/rent/',
+            address: c.address.trim(),
+            suburb: info.name,
+            postcode: info.postcode,
+            price: c.price.trim(),
+            priceValue: priceVal(c.price),
+            bedrooms: c.bedrooms,
+            bathrooms: c.bathrooms,
+            parking: c.parking,
+            propertyType: '',
+            image: c.image,
+            cbdMin: info.cbdMin,
+            line: info.line,
+            source: 'Elders',
+          });
+        });
+      },
+    })
+    .on('a.property-card__link', {
+      element(el) {
+        if (!cur) return;
+        const h = el.getAttribute('href') || '';
+        cur.url = h.startsWith('http') ? h : `https://www.eldersrealestate.com.au${h}`;
+      },
+    })
+    .on('.property-card__price', {
+      element() { fld = 'price'; },
+      text(c) { if (cur && fld === 'price') cur.price += c.text; },
+    })
+    .on('.property-card__address', {
+      element() { fld = 'address'; },
+      text(c) { if (cur && fld === 'address') cur.address += c.text; },
+    })
+    .on('.property-card__key-feature--bed', {
+      text(c) { if (cur && c.text.trim()) cur.bedrooms = parseInt(c.text) || null; },
+    })
+    .on('.property-card__key-feature--bath', {
+      text(c) { if (cur && c.text.trim()) cur.bathrooms = parseInt(c.text) || null; },
+    })
+    .on('.property-card__key-feature--car', {
+      text(c) { if (cur && c.text.trim()) cur.parking = parseInt(c.text) || null; },
+    })
+    .on('.property-card__images img', {
+      element(el) {
+        if (cur && !cur.image) {
+          cur.image = el.getAttribute('src') || el.getAttribute('data-flickity-lazyload') || null;
+        }
+      },
+    })
+    .transform(resp)
+    .arrayBuffer();
+
+  return results;
+}
+
+async function scrapeElders(qualifying, maxPrice, minBeds) {
+  const p = new URLSearchParams({ state: 'NSW' });
+  if (maxPrice < 5000) p.set('maxRent', maxPrice);
+  if (minBeds > 0) p.set('minBedrooms', minBeds);
+
+  const base = 'https://www.eldersrealestate.com.au/residential/rent/';
+  const settled = await Promise.allSettled(
+    [1, 2, 3].map(page =>
+      scrapeEldersPage(`${base}?${p}&page=${page}`, qualifying, maxPrice, minBeds)
+    )
+  );
+  return settled.flatMap(r => r.status === 'fulfilled' ? r.value : []);
+}
+
+// ─── Next.js __NEXT_DATA__ extractor ─────────────────────────────────────────
+// Ray White and LJ Hooker both use Next.js. Their SSR payload often includes
+// listing data in the <script id="__NEXT_DATA__"> JSON blob.
+
+function tryListing(obj, qualifying, source, baseUrl) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+
+  // Try many field name conventions used by Australian real estate platforms
+  const price =
+    obj.rent ?? obj.price ?? obj.displayPrice ?? obj.rentPrice ?? obj.weeklyRent ??
+    obj.priceDetails?.displayPrice ?? obj.priceDetails?.rent ??
+    obj.pricing?.display ?? obj.pricing?.rent;
+
+  const addressRaw =
+    obj.address ?? obj.displayAddress ?? obj.streetAddress ?? obj.fullAddress ??
+    obj.location?.address ?? obj.location?.displayAddress ??
+    obj.property?.address ?? obj.propertyAddress;
+
+  if (!price || !addressRaw) return null;
+
+  const address = typeof addressRaw === 'string'
+    ? addressRaw
+    : [addressRaw.streetAddress, addressRaw.suburb, addressRaw.state, addressRaw.postcode]
+        .filter(Boolean).join(', ');
+
+  const info = matchSuburb(address, qualifying);
+  if (!info) return null;
+
+  const priceStr = typeof price === 'string' ? price : `$${price}`;
+  const rawUrl = obj.url ?? obj.listingUrl ?? obj.propertyUrl ?? obj.href ?? obj.slug ?? '';
+  const fullUrl = rawUrl
+    ? (rawUrl.startsWith('http') ? rawUrl : `${baseUrl}${rawUrl}`)
+    : baseUrl;
+
+  const imageRaw =
+    obj.mainImage ?? obj.heroImage ?? obj.thumbnailUrl ?? obj.image ??
+    obj.images?.[0]?.url ?? obj.images?.[0]?.src ?? obj.media?.[0]?.url;
+
+  return {
+    id: `${source.replace(/\s+/g, '-').toLowerCase()}-${obj.id ?? obj.listingId ?? fullUrl}`,
+    url: fullUrl,
+    address,
+    suburb: info.name,
+    postcode: info.postcode,
+    price: priceStr,
+    priceValue: priceVal(priceStr),
+    bedrooms: obj.bedrooms ?? obj.beds ?? obj.features?.bedrooms ?? null,
+    bathrooms: obj.bathrooms ?? obj.baths ?? obj.features?.bathrooms ?? null,
+    parking: obj.carSpaces ?? obj.parking ?? obj.carparks ?? obj.features?.carSpaces ?? null,
+    propertyType: obj.propertyType ?? obj.type ?? '',
+    image: typeof imageRaw === 'string' ? imageRaw : null,
+    cbdMin: info.cbdMin,
+    line: info.line,
+    source,
+  };
+}
+
+function parseNextData(json, qualifying, source, baseUrl) {
+  try {
+    const root = JSON.parse(json);
+    const found = [];
+    const seen = new Set();
+
+    function walk(node, depth) {
+      if (depth > 10 || !node || typeof node !== 'object') return;
+      if (Array.isArray(node)) {
+        for (const item of node) {
+          const listing = tryListing(item, qualifying, source, baseUrl);
+          if (listing && !seen.has(listing.id)) {
+            seen.add(listing.id);
+            found.push(listing);
+          }
+          walk(item, depth + 1);
+        }
+      } else {
+        for (const v of Object.values(node)) walk(v, depth + 1);
+      }
+    }
+
+    walk(root, 0);
+    return found;
+  } catch {
+    return [];
+  }
+}
+
+async function fetchNextJs(url, referer, source, baseUrl, qualifying) {
+  const resp = await fetch(url, {
+    headers: { ...HEADERS, Referer: referer },
+  });
+  if (!resp.ok) return [];
+
+  let nextData = '';
+  await new HTMLRewriter()
+    .on('script#__NEXT_DATA__', {
+      text(c) { nextData += c.text; },
+    })
+    .transform(resp)
+    .arrayBuffer();
+
+  return nextData ? parseNextData(nextData, qualifying, source, baseUrl) : [];
+}
+
+// ─── Ray White ────────────────────────────────────────────────────────────────
+
+async function scrapeRayWhite(qualifying, maxPrice, minBeds) {
+  const q = `maxRent=${maxPrice}${minBeds > 0 ? `&minBedrooms=${minBeds}` : ''}`;
+  return fetchNextJs(
+    `https://www.raywhite.com/rent/?state=NSW&${q}`,
+    'https://www.raywhite.com/',
+    'Ray White',
+    'https://www.raywhite.com',
+    qualifying,
+  ).catch(() => []);
+}
+
+// ─── LJ Hooker ────────────────────────────────────────────────────────────────
+
+async function scrapeLJHooker(qualifying, maxPrice, minBeds) {
+  const q = `maxPrice=${maxPrice}${minBeds > 0 ? `&minimumBedrooms=${minBeds}` : ''}`;
+  return fetchNextJs(
+    `https://www.ljhooker.com.au/residential-listing-search-results?searchProfile=rent&state=nsw&${q}`,
+    'https://www.ljhooker.com.au/',
+    'LJ Hooker',
+    'https://www.ljhooker.com.au',
+    qualifying,
+  ).catch(() => []);
+}
+
+// ─── Harris Tripp ─────────────────────────────────────────────────────────────
+// Small Inner West Sydney agency using WordPress + Easy Property Listings plugin.
+
+async function scrapeHarrisTripp(qualifying, maxPrice, minBeds) {
+  const candidates = [
+    'https://www.harristripp.com.au/rent/',
+    'https://www.harristripp.com.au/properties/?type=residential-for-rent',
+    'https://www.harristripp.com.au/property-management/available-rentals/',
+    'https://www.harristripp.com.au/rental-properties/',
+  ];
+
+  for (const url of candidates) {
+    try {
+      const resp = await fetch(url, {
+        headers: { ...HEADERS, Referer: 'https://www.harristripp.com.au/' },
+      });
+      if (!resp.ok || resp.status === 404) continue;
+
+      // Try __NEXT_DATA__ first in case they've migrated to Next.js
+      let nextData = '';
+      const results = [];
+      let cur = null;
+      let fld = '';
+
+      await new HTMLRewriter()
+        .on('script#__NEXT_DATA__', {
+          text(c) { nextData += c.text; },
+        })
+        // Easy Property Listings (EPL) WordPress plugin selectors
+        .on('.epl-listing-post, .property-listing, .listing-item, [class*="property-card"]', {
+          element(el) {
+            cur = { price: '', address: '', url: '', image: null, bedrooms: null, bathrooms: null, parking: null };
+            fld = '';
+            el.onEndTag(() => {
+              const c = cur; cur = null; fld = '';
+              if (!c?.address) return;
+              if (priceVal(c.price) > maxPrice) return;
+              if (minBeds > 0 && c.bedrooms !== null && c.bedrooms < minBeds) return;
+              const info = matchSuburb(c.address, qualifying);
+              if (!info) return;
+              results.push({
+                id: `harris-${c.url || c.address}`,
+                url: c.url || 'https://www.harristripp.com.au',
+                address: c.address.trim(),
+                suburb: info.name,
+                postcode: info.postcode,
+                price: c.price.trim(),
+                priceValue: priceVal(c.price),
+                bedrooms: c.bedrooms,
+                bathrooms: c.bathrooms,
+                parking: c.parking,
+                propertyType: '',
+                image: c.image,
+                cbdMin: info.cbdMin,
+                line: info.line,
+                source: 'Harris Tripp',
+              });
+            });
+          },
+        })
+        .on('.epl-price, .listing-price, [class*="price"]', {
+          element() { fld = 'price'; },
+          text(c) { if (cur && fld === 'price') cur.price += c.text; },
+        })
+        .on('.epl-street, .listing-address, [class*="address"], .entry-title', {
+          element() { fld = 'address'; },
+          text(c) { if (cur && fld === 'address') cur.address += c.text; },
+        })
+        .on('a[href*="harristripp"]', {
+          element(el) {
+            if (cur && !cur.url) {
+              const h = el.getAttribute('href') || '';
+              cur.url = h.startsWith('http') ? h : `https://www.harristripp.com.au${h}`;
+            }
+          },
+        })
+        .on('.epl-feature-beds, [class*="bed"]', {
+          text(c) { if (cur && c.text.trim()) cur.bedrooms = parseInt(c.text) || null; },
+        })
+        .on('.epl-feature-bathrooms, [class*="bath"]', {
+          text(c) { if (cur && c.text.trim()) cur.bathrooms = parseInt(c.text) || null; },
+        })
+        .on('img.wp-post-image, .property-image img, .epl-image img', {
+          element(el) {
+            if (cur && !cur.image) {
+              cur.image = el.getAttribute('src') || el.getAttribute('data-src') || null;
+            }
+          },
+        })
+        .transform(resp)
+        .arrayBuffer();
+
+      if (nextData) {
+        const fromNext = parseNextData(nextData, qualifying, 'Harris Tripp', 'https://www.harristripp.com.au');
+        if (fromNext.length > 0) return fromNext;
+      }
+      if (results.length > 0) return results;
+    } catch {
+      // try next candidate
+    }
+  }
+  return [];
 }
 
 // ─── HTML ─────────────────────────────────────────────────────────────────────
-
-const SETUP_HTML = (apiKey) => `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Sydney Train Rentals — Setup</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{background:#0d1117;color:#e6edf3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-     display:flex;align-items:center;justify-content:center;min-height:100vh;padding:2rem}
-.box{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:2.5rem;max-width:560px;width:100%}
-h1{font-size:1.4rem;margin-bottom:.5rem}h1 span{color:#2ea043}
-p{color:#8b949e;font-size:.9rem;margin:.75rem 0;line-height:1.6}
-ol{color:#8b949e;font-size:.9rem;padding-left:1.4rem;line-height:2}
-ol li a{color:#58a6ff}
-code{background:#0d1117;border:1px solid #30363d;padding:.15rem .45rem;border-radius:4px;font-size:.82rem;color:#e6edf3}
-.cmd{background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:1rem;margin:.5rem 0;
-     font-family:monospace;font-size:.83rem;color:#79c0ff;word-break:break-all}
-</style>
-</head>
-<body><div class="box">
-<h1>🚂 <span>Sydney</span> Rentals — One-time setup</h1>
-<p>This app uses the <strong>Domain.com.au API</strong> (free, 100 req/day) to fetch live rental listings.
-You need a free API key to activate it.</p>
-<ol>
-  <li>Register at <a href="https://developer.domain.com.au" target="_blank">developer.domain.com.au</a></li>
-  <li>Create a project → copy the <strong>Client ID</strong> (this is your API key)</li>
-  <li>In your terminal, inside <code>~/sydney-rentals/</code>, run:</li>
-</ol>
-<div class="cmd">npx wrangler secret put DOMAIN_API_KEY</div>
-<p>Paste the key when prompted, then redeploy with:</p>
-<div class="cmd">npm run deploy</div>
-<p>For local dev, create <code>.dev.vars</code> containing:</p>
-<div class="cmd">DOMAIN_API_KEY=your_key_here</div>
-<p>Then <code>npm run dev</code> and refresh this page.</p>
-</div></body></html>`;
 
 const APP_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Sydney Train Rentals</title>
+<title>Find Me A Place — Sydney Train Rentals</title>
 <style>
 :root{
   --bg:#0d1117;--surface:#161b22;--card:#1c2128;--border:#30363d;
   --green:#2ea043;--green-dim:rgba(46,160,67,.15);
   --amber:#d29922;--amber-dim:rgba(210,153,34,.15);
+  --blue:#58a6ff;--blue-dim:rgba(88,166,255,.15);
   --text:#e6edf3;--muted:#8b949e;--link:#58a6ff;
 }
 *{box-sizing:border-box;margin:0;padding:0}
@@ -250,8 +480,8 @@ select,input[type=number]{
 .btn:disabled{opacity:.45;cursor:default}
 
 .notice{
-  background:var(--amber-dim);border-bottom:1px solid var(--border);
-  padding:.5rem 1.25rem;font-size:.77rem;color:var(--amber);
+  background:var(--blue-dim);border-bottom:1px solid var(--border);
+  padding:.5rem 1.25rem;font-size:.77rem;color:var(--blue);
 }
 .meta{
   padding:.55rem 1.25rem;font-size:.79rem;color:var(--muted);
@@ -260,6 +490,7 @@ select,input[type=number]{
 .pill{display:inline-flex;align-items:center;gap:.22rem;padding:.13rem .5rem;border-radius:999px;font-size:.72rem;font-weight:600}
 .pill-green{background:var(--green-dim);color:var(--green)}
 .pill-amber{background:var(--amber-dim);color:var(--amber)}
+.pill-blue{background:var(--blue-dim);color:var(--blue)}
 
 .grid{
   display:grid;
@@ -313,7 +544,6 @@ select,input[type=number]{
   border-radius:8px;font-size:.82rem;color:#ffa198;display:none;
 }
 
-/* Suburb fallback list */
 .suburb-grid{
   display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));
   gap:.45rem;padding:1.2rem;
@@ -332,7 +562,7 @@ select,input[type=number]{
 <body>
 
 <div class="topbar">
-  <div class="brand">🚂 <span>Sydney</span> Rentals</div>
+  <div class="brand">🚂 <span>Find Me A Place</span></div>
   <div class="filters">
     <div class="fg">
       <label>Max rent / week</label>
@@ -360,9 +590,8 @@ select,input[type=number]{
 </div>
 
 <div class="notice">
-  ⚡ Only suburbs with their own heavy-rail station within your chosen CBD time.
-  Properties <strong>under $450/wk</strong> are highlighted green.
-  Verify walking distance to station on Google Maps before applying.
+  ⚡ Scraped live from <strong>Ray White · Elders · LJ Hooker · Harris Tripp</strong>.
+  Only suburbs with heavy-rail within your chosen CBD time. Properties <strong>under $450/wk</strong> highlighted green.
 </div>
 
 <div class="err" id="errBox"></div>
@@ -381,7 +610,7 @@ async function doSearch() {
   const maxCbd   = +document.getElementById('maxCbd').value;
 
   btn.disabled = true;
-  setGrid('<div class="state"><div class="spinner"></div>Searching across Sydney…</div>');
+  setGrid('<div class="state"><div class="spinner"></div>Scraping Ray White, Elders, LJ Hooker &amp; Harris Tripp…</div>');
   document.getElementById('meta').style.display = 'none';
   document.getElementById('errBox').style.display = 'none';
 
@@ -422,24 +651,27 @@ function setMeta(html) {
 
 function renderCards(listings, maxPrice) {
   if (!listings.length) {
-    setGrid('<div class="state">🏠 No listings found — try relaxing your filters.</div>');
+    setGrid('<div class="state">🏠 No listings found — scrapers may be blocked or no matches exist. Try relaxing your filters.</div>');
     document.getElementById('meta').style.display = 'none';
     return;
   }
 
   const ideal   = listings.filter(l => l.priceValue <= IDEAL).length;
   const suburbs = new Set(listings.map(l => l.suburb)).size;
+  const sources = [...new Set(listings.map(l => l.source))].join(' · ');
 
   setMeta(
     '<span>' + listings.length + ' listings across ' + suburbs + ' suburbs</span>' +
     (ideal ? '<span class="pill pill-green">⭐ ' + ideal + ' under $' + IDEAL + '/wk</span>' : '') +
-    '<span class="pill pill-amber">Max $' + maxPrice + '/wk · domain.com.au</span>'
+    '<span class="pill pill-amber">Max $' + maxPrice + '/wk</span>' +
+    '<span class="pill pill-blue">' + sources + '</span>'
   );
 
   setGrid(listings.map(l => {
     const isIdeal    = l.priceValue <= IDEAL;
     const priceClass = isIdeal ? 'price green' : 'price amber';
     const badge      = isIdeal ? '<span class="pill pill-green">⭐ Under $450</span>' : '';
+    const srcBadge   = '<span class="pill pill-blue">' + (l.source || '') + '</span>';
 
     const beds  = l.bedrooms === 0 ? 'Studio' : l.bedrooms ? l.bedrooms + ' bed' : '? bed';
     const baths = l.bathrooms ? ' · ' + l.bathrooms + ' bath' : '';
@@ -456,17 +688,17 @@ function renderCards(listings, maxPrice) {
     return '<div class="card' + (isIdeal ? ' ideal' : '') + '">' +
       '<div class="thumb">' + img + '</div>' +
       '<div class="body">' +
-        '<div class="price-row"><span class="' + priceClass + '">' + l.price + '</span>' + badge + '</div>' +
+        '<div class="price-row"><span class="' + priceClass + '">' + l.price + '</span>' + badge + srcBadge + '</div>' +
         '<div class="feats">' + beds + baths + park + '</div>' +
         '<div class="addr" title="' + l.address + '">' + l.address + '</div>' +
         '<div class="transit">' + transit + '</div>' +
-        '<a class="view" href="' + l.url + '" target="_blank" rel="noopener">View on domain.com.au →</a>' +
+        '<a class="view" href="' + l.url + '" target="_blank" rel="noopener">View on ' + (l.source || 'listing') + ' →</a>' +
       '</div></div>';
   }).join(''));
 }
 
 function renderFallback(suburbs, maxPrice, minBeds) {
-  setMeta('<span>' + suburbs.length + ' qualifying suburbs</span><span class="pill pill-amber">Browse direct links on realestate.com.au</span>');
+  setMeta('<span>' + suburbs.length + ' qualifying suburbs</span><span class="pill pill-amber">Scrapers unavailable — browse direct links</span>');
   const bedsQ = minBeds > 0 ? '&minBedrooms=' + minBeds : '';
   document.getElementById('grid').className = 'suburb-grid';
   document.getElementById('grid').innerHTML = suburbs.map(s => {
@@ -486,89 +718,58 @@ doSearch();
 // ─── Worker ───────────────────────────────────────────────────────────────────
 
 export default {
-  async fetch(request, env) {
+  async fetch(request) {
     const url = new URL(request.url);
-    const apiKey = env.DOMAIN_API_KEY || "";
 
-    // Show setup instructions if no API key configured
-    if (!apiKey && url.pathname !== "/api/search") {
-      // Still serve the app — it will fall back to suburb links
-    }
-
-    if (url.pathname === "/api/search") {
+    if (url.pathname === '/api/search') {
       const headers = {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
       };
 
-      const maxPrice = Math.min(
-        Math.max(parseInt(url.searchParams.get("maxPrice") || "600"), 100),
-        5000
-      );
-      const minBeds = Math.max(
-        parseInt(url.searchParams.get("minBeds") || "1"),
-        0
-      );
-      const maxCbd = Math.min(
-        parseInt(url.searchParams.get("maxCbd") || "40"),
-        60
-      );
+      const maxPrice = Math.min(Math.max(parseInt(url.searchParams.get('maxPrice') || '600'), 100), 5000);
+      const minBeds  = Math.max(parseInt(url.searchParams.get('minBeds') || '0'), 0);
+      const maxCbd   = Math.min(parseInt(url.searchParams.get('maxCbd') || '40'), 60);
 
-      const qualifying = SUBURBS.filter((s) => s.cbdMin <= maxCbd);
+      const qualifying = SUBURBS.filter(s => s.cbdMin <= maxCbd);
 
-      // No API key → return suburb fallback links
-      if (!apiKey) {
-        const suburbs = qualifying.map((s) => ({
-          name: s.name,
-          cbdMin: s.cbdMin,
-          line: s.line,
-          slug: `${s.name.toLowerCase().replace(/ /g, "-")}-nsw-${s.postcode}`,
-        }));
-        return new Response(JSON.stringify({ fallback: true, suburbs }), {
-          headers,
-        });
-      }
+      const [eldersR, rwR, ljhR, htR] = await Promise.allSettled([
+        scrapeElders(qualifying, maxPrice, minBeds),
+        scrapeRayWhite(qualifying, maxPrice, minBeds),
+        scrapeLJHooker(qualifying, maxPrice, minBeds),
+        scrapeHarrisTripp(qualifying, maxPrice, minBeds),
+      ]);
 
-      try {
-        const { listings, anyBatchOk } = await searchDomain(
-          qualifying,
-          maxPrice,
-          minBeds,
-          apiKey
-        );
+      const all = [
+        ...(eldersR.status === 'fulfilled'  ? eldersR.value : []),
+        ...(rwR.status    === 'fulfilled'   ? rwR.value     : []),
+        ...(ljhR.status   === 'fulfilled'   ? ljhR.value    : []),
+        ...(htR.status    === 'fulfilled'   ? htR.value     : []),
+      ];
 
-        // If all batches failed (e.g. 401 invalid key), serve fallback
-        if (!anyBatchOk) throw new Error("All Domain API batches failed");
-
-        return new Response(JSON.stringify({ listings }), { headers });
-      } catch (e) {
-        // On error, still return suburb fallback
-        const suburbs = qualifying.map((s) => ({
-          name: s.name,
-          cbdMin: s.cbdMin,
-          line: s.line,
-          slug: `${s.name.toLowerCase().replace(/ /g, "-")}-nsw-${s.postcode}`,
-        }));
-        return new Response(
-          JSON.stringify({
-            fallback: true,
-            suburbs,
-            error: String(e),
-          }),
-          { headers }
-        );
-      }
-    }
-
-    // Serve setup page if no API key, otherwise app
-    if (!apiKey) {
-      return new Response(SETUP_HTML(), {
-        headers: { "Content-Type": "text/html; charset=utf-8" },
+      // Deduplicate by URL
+      const seen = new Set();
+      const listings = all.filter(l => {
+        if (!l.url || seen.has(l.url)) return false;
+        seen.add(l.url);
+        return true;
       });
+
+      listings.sort((a, b) => a.priceValue - b.priceValue);
+
+      if (listings.length === 0) {
+        const suburbs = qualifying.map(s => ({
+          name: s.name, cbdMin: s.cbdMin, line: s.line,
+          slug: `${s.name.toLowerCase().replace(/ /g, '-')}-nsw-${s.postcode}`,
+        }));
+        return new Response(JSON.stringify({ fallback: true, suburbs }), { headers });
+      }
+
+      return new Response(JSON.stringify({ listings }), { headers });
     }
 
     return new Response(APP_HTML, {
-      headers: { "Content-Type": "text/html; charset=utf-8" },
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
     });
   },
 };
