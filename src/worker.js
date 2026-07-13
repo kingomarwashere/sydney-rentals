@@ -81,11 +81,13 @@ function priceVal(str) {
 function matchSuburb(address, suburbs) {
   if (!address) return null;
   const addr = String(address);
-  // Postcode match is most reliable — addresses end with ", NSW, 2042" or similar
-  const pcm = addr.match(/\b(\d{4})\b/);
-  if (pcm) {
+  // Use the LAST 4-digit number — Australian postcodes always appear at the end.
+  // Using the first match would incorrectly grab unit/street numbers like "1034/1 Smith St".
+  const allPc = addr.match(/\b\d{4}\b/g);
+  const postcode = allPc ? allPc[allPc.length - 1] : null;
+  if (postcode) {
     for (const s of suburbs) {
-      if (s.postcode === pcm[1]) return s;
+      if (s.postcode === postcode) return s;
     }
   }
   // Fallback: suburb name surrounded by punctuation/word boundaries
@@ -349,104 +351,67 @@ async function scrapeLJHooker(qualifying, maxPrice, minBeds) {
 // Small Inner West Sydney agency using WordPress + Easy Property Listings plugin.
 
 async function scrapeHarrisTripp(qualifying, maxPrice, minBeds) {
-  const candidates = [
-    'https://www.harristripp.com.au/rent/',
-    'https://www.harristripp.com.au/properties/?type=residential-for-rent',
-    'https://www.harristripp.com.au/property-management/available-rentals/',
-    'https://www.harristripp.com.au/rental-properties/',
-  ];
+  // Harris Tripp uses a WordPress REST API discovered by reading their archive-listing.js.
+  // Endpoint: GET /wp-json/api/listings/all?suburb={slug}&paged=1
+  // Slug format: {suburb-name-lowercase-hyphenated}-nsw-{postcode}
+  // No status filter in URL — filter client-side by type/statusCaption.
+  const BASE = 'https://www.harristripp.com.au';
+  const htHeaders = { ...HEADERS, 'PageFrom': 'archive', 'Referer': `${BASE}/properties-for-rent/` };
 
-  for (const url of candidates) {
-    try {
-      const resp = await fetch(url, {
-        headers: { ...HEADERS, Referer: 'https://www.harristripp.com.au/' },
-      });
-      if (!resp.ok || resp.status === 404) continue;
+  const BATCH = 5;
+  const all = [];
 
-      // Try __NEXT_DATA__ first in case they've migrated to Next.js
-      let nextData = '';
-      const results = [];
-      let cur = null;
-      let fld = '';
+  for (let i = 0; i < qualifying.length; i += BATCH) {
+    const batch = qualifying.slice(i, i + BATCH);
+    const settled = await Promise.allSettled(
+      batch.map(async s => {
+        const slug = `${s.name.toLowerCase().replace(/\s+/g, '-')}-nsw-${s.postcode}`;
+        const resp = await fetch(`${BASE}/wp-json/api/listings/all?suburb=${slug}&paged=1`, { headers: htHeaders });
+        if (!resp.ok) return [];
+        const data = await resp.json();
+        if (!data.results || !Array.isArray(data.results)) return [];
 
-      await new HTMLRewriter()
-        .on('script#__NEXT_DATA__', {
-          text(c) { nextData += c.text; },
-        })
-        // Easy Property Listings (EPL) WordPress plugin selectors
-        .on('.epl-listing-post, .property-listing, .listing-item, [class*="property-card"]', {
-          element(el) {
-            cur = { price: '', address: '', url: '', image: null, bedrooms: null, bathrooms: null, parking: null };
-            fld = '';
-            el.onEndTag(() => {
-              const c = cur; cur = null; fld = '';
-              if (!c?.address) return;
-              if (priceVal(c.price) > maxPrice) return;
-              if (minBeds > 0 && c.bedrooms !== null && c.bedrooms < minBeds) return;
-              const info = matchSuburb(c.address, qualifying);
-              if (!info) return;
-              results.push({
-                id: `harris-${c.url || c.address}`,
-                url: c.url || 'https://www.harristripp.com.au',
-                address: c.address.trim(),
-                suburb: info.name,
-                postcode: info.postcode,
-                price: c.price.trim(),
-                priceValue: priceVal(c.price),
-                bedrooms: c.bedrooms,
-                bathrooms: c.bathrooms,
-                parking: c.parking,
-                propertyType: '',
-                image: c.image,
-                cbdMin: info.cbdMin,
-                line: info.line,
-                source: 'Harris Tripp',
-              });
-            });
-          },
-        })
-        .on('.epl-price, .listing-price, [class*="price"]', {
-          element() { fld = 'price'; },
-          text(c) { if (cur && fld === 'price') cur.price += c.text; },
-        })
-        .on('.epl-street, .listing-address, [class*="address"], .entry-title', {
-          element() { fld = 'address'; },
-          text(c) { if (cur && fld === 'address') cur.address += c.text; },
-        })
-        .on('a[href*="harristripp"]', {
-          element(el) {
-            if (cur && !cur.url) {
-              const h = el.getAttribute('href') || '';
-              cur.url = h.startsWith('http') ? h : `https://www.harristripp.com.au${h}`;
-            }
-          },
-        })
-        .on('.epl-feature-beds, [class*="bed"]', {
-          text(c) { if (cur && c.text.trim()) cur.bedrooms = parseInt(c.text) || null; },
-        })
-        .on('.epl-feature-bathrooms, [class*="bath"]', {
-          text(c) { if (cur && c.text.trim()) cur.bathrooms = parseInt(c.text) || null; },
-        })
-        .on('img.wp-post-image, .property-image img, .epl-image img', {
-          element(el) {
-            if (cur && !cur.image) {
-              cur.image = el.getAttribute('src') || el.getAttribute('data-src') || null;
-            }
-          },
-        })
-        .transform(resp)
-        .arrayBuffer();
+        const results = [];
+        for (const item of data.results) {
+          if (item.type !== 'rental') continue;
+          if (item.statusCaption !== 'For Rent') continue;
+          if (item.propertyStatus !== 'current') continue;
 
-      if (nextData) {
-        const fromNext = parseNextData(nextData, qualifying, 'Harris Tripp', 'https://www.harristripp.com.au');
-        if (fromNext.length > 0) return fromNext;
-      }
-      if (results.length > 0) return results;
-    } catch {
-      // try next candidate
-    }
+          const address = item.address?.fullAddress || '';
+          const info = matchSuburb(address, qualifying);
+          if (!info) continue;
+
+          const priceStr = item.propertyPricing?.value || '';
+          const pv = priceVal(priceStr);
+          if (pv > maxPrice) continue;
+
+          const beds = item.propertyBed ?? null;
+          if (minBeds > 0 && beds !== null && beds < minBeds) continue;
+
+          results.push({
+            id: `harris-${item.uniqueID || item.id}`,
+            url: item.link || `${BASE}/properties-for-rent/`,
+            address,
+            suburb: info.name,
+            postcode: info.postcode,
+            price: priceStr,
+            priceValue: pv,
+            bedrooms: beds,
+            bathrooms: item.propertyBath ?? null,
+            parking: item.propertyParking ?? null,
+            propertyType: item.propertyCategory || '',
+            image: item.propertyImage?.featured || null,
+            cbdMin: info.cbdMin,
+            line: info.line,
+            source: 'Harris Tripp',
+          });
+        }
+        return results;
+      })
+    );
+    all.push(...settled.flatMap(r => r.status === 'fulfilled' ? r.value : []));
   }
-  return [];
+  return all;
 }
 
 // ─── HTML ─────────────────────────────────────────────────────────────────────
@@ -780,7 +745,13 @@ export default {
     }
 
     return new Response(APP_HTML, {
-      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-transform',
+        // Block externally-injected scripts (Cloudflare Rocket Loader etc.)
+        // that cause "Unexpected token 'class'" in Brave.
+        'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src * data: blob:; connect-src *; font-src *;",
+      },
     });
   },
 };
