@@ -192,17 +192,28 @@ async function scrapeEldersPage(url, qualifying, maxPrice, minBeds) {
 }
 
 async function scrapeElders(qualifying, maxPrice, minBeds) {
-  const p = new URLSearchParams({ state: 'NSW' });
-  if (maxPrice < 5000) p.set('maxRent', maxPrice);
-  if (minBeds > 0) p.set('minBedrooms', minBeds);
-
-  const base = 'https://www.eldersrealestate.com.au/residential/rent/';
-  const settled = await Promise.allSettled(
-    [1, 2, 3].map(page =>
-      scrapeEldersPage(`${base}?${p}&page=${page}`, qualifying, maxPrice, minBeds)
-    )
-  );
-  return settled.flatMap(r => r.status === 'fulfilled' ? r.value : []);
+  // Search per suburb so we don't drown in rural/interstate results from a broad NSW query.
+  // Batch 5 at a time to stay well under the CF subrequest limit.
+  const BATCH = 5;
+  const all = [];
+  for (let i = 0; i < qualifying.length; i += BATCH) {
+    const batch = qualifying.slice(i, i + BATCH);
+    const settled = await Promise.allSettled(
+      batch.map(s => {
+        const p = new URLSearchParams({ suburb: s.name, postcode: s.postcode, state: 'NSW' });
+        if (maxPrice < 5000) p.set('maxRent', maxPrice);
+        if (minBeds > 0) p.set('minBedrooms', minBeds);
+        return scrapeEldersPage(
+          `https://www.eldersrealestate.com.au/residential/rent/?${p}`,
+          qualifying,
+          maxPrice,
+          minBeds,
+        );
+      })
+    );
+    all.push(...settled.flatMap(r => r.status === 'fulfilled' ? r.value : []));
+  }
+  return all;
 }
 
 // ─── Next.js __NEXT_DATA__ extractor ─────────────────────────────────────────
@@ -600,7 +611,7 @@ select,input[type=number]{
   <div class="state"><div class="spinner"></div>Searching across Sydney…</div>
 </div>
 
-<script>
+<script data-cfasync="false">
 const IDEAL = 450;
 
 async function doSearch() {
