@@ -1,74 +1,204 @@
-// Sydney suburbs with heavy-rail stations within 40 min of CBD (Central Station)
+// Greater Sydney suburbs — all transport modes — filtered by CBD travel time.
+// Approximate times via public transport to Town Hall/Central.
 const SUBURBS = [
-  // T2 Inner West Line
-  { name: "Redfern",        postcode: "2016", cbdMin: 3,  line: "T2" },
-  { name: "Newtown",        postcode: "2042", cbdMin: 7,  line: "T2" },
-  { name: "Stanmore",       postcode: "2048", cbdMin: 9,  line: "T2" },
-  { name: "Petersham",      postcode: "2049", cbdMin: 11, line: "T2" },
-  { name: "Lewisham",       postcode: "2049", cbdMin: 13, line: "T2" },
-  { name: "Summer Hill",    postcode: "2130", cbdMin: 15, line: "T2" },
-  { name: "Ashfield",       postcode: "2131", cbdMin: 17, line: "T2" },
-  { name: "Croydon",        postcode: "2132", cbdMin: 19, line: "T2" },
-  { name: "Burwood",        postcode: "2134", cbdMin: 21, line: "T2" },
-  { name: "Strathfield",    postcode: "2135", cbdMin: 24, line: "T1/T2" },
+  // ── T2 Inner West Line ──
+  { name: "Redfern",          postcode: "2016", cbdMin: 3,  line: "T2",    lat: -33.8929, lon: 151.2022 },
+  { name: "Newtown",          postcode: "2042", cbdMin: 7,  line: "T2",    lat: -33.8966, lon: 151.1779 },
+  { name: "Stanmore",         postcode: "2048", cbdMin: 9,  line: "T2",    lat: -33.8966, lon: 151.1651 },
+  { name: "Petersham",        postcode: "2049", cbdMin: 11, line: "T2",    lat: -33.8987, lon: 151.1565 },
+  { name: "Lewisham",         postcode: "2049", cbdMin: 13, line: "T2",    lat: -33.9001, lon: 151.1497 },
+  { name: "Summer Hill",      postcode: "2130", cbdMin: 15, line: "T2",    lat: -33.8968, lon: 151.1398 },
+  { name: "Ashfield",         postcode: "2131", cbdMin: 17, line: "T2",    lat: -33.8885, lon: 151.1244 },
+  { name: "Croydon",          postcode: "2132", cbdMin: 19, line: "T2",    lat: -33.8839, lon: 151.1078 },
+  { name: "Burwood",          postcode: "2134", cbdMin: 21, line: "T2",    lat: -33.8775, lon: 151.1038 },
+  { name: "Strathfield",      postcode: "2135", cbdMin: 24, line: "T1/T2", lat: -33.8747, lon: 151.0947 },
 
-  // T3 Bankstown Line
-  { name: "Erskineville",   postcode: "2043", cbdMin: 8,  line: "T3" },
-  { name: "St Peters",      postcode: "2044", cbdMin: 10, line: "T3" },
-  { name: "Sydenham",       postcode: "2044", cbdMin: 12, line: "T3" },
-  { name: "Marrickville",   postcode: "2204", cbdMin: 14, line: "T3" },
-  { name: "Dulwich Hill",   postcode: "2203", cbdMin: 16, line: "T3" },
-  { name: "Hurlstone Park", postcode: "2193", cbdMin: 18, line: "T3" },
-  { name: "Canterbury",     postcode: "2193", cbdMin: 20, line: "T3" },
-  { name: "Campsie",        postcode: "2194", cbdMin: 22, line: "T3" },
-  { name: "Lakemba",        postcode: "2195", cbdMin: 24, line: "T3" },
-  { name: "Wiley Park",     postcode: "2195", cbdMin: 26, line: "T3" },
-  { name: "Punchbowl",      postcode: "2196", cbdMin: 28, line: "T3" },
-  { name: "Bankstown",      postcode: "2200", cbdMin: 32, line: "T3" },
+  // ── T3 Bankstown Line ──
+  { name: "Erskineville",     postcode: "2043", cbdMin: 8,  line: "T3",    lat: -33.9026, lon: 151.1898 },
+  { name: "St Peters",        postcode: "2044", cbdMin: 10, line: "T3",    lat: -33.9107, lon: 151.1886 },
+  { name: "Sydenham",         postcode: "2044", cbdMin: 12, line: "T3",    lat: -33.9145, lon: 151.1757 },
+  { name: "Marrickville",     postcode: "2204", cbdMin: 14, line: "T3",    lat: -33.9122, lon: 151.1571 },
+  { name: "Dulwich Hill",     postcode: "2203", cbdMin: 16, line: "T3",    lat: -33.9147, lon: 151.1389 },
+  { name: "Hurlstone Park",   postcode: "2193", cbdMin: 18, line: "T3",    lat: -33.9094, lon: 151.1247 },
+  { name: "Canterbury",       postcode: "2193", cbdMin: 20, line: "T3",    lat: -33.9134, lon: 151.1179 },
+  { name: "Campsie",          postcode: "2194", cbdMin: 22, line: "T3",    lat: -33.9103, lon: 151.1030 },
+  { name: "Lakemba",          postcode: "2195", cbdMin: 24, line: "T3",    lat: -33.9179, lon: 151.0784 },
+  { name: "Wiley Park",       postcode: "2195", cbdMin: 26, line: "T3",    lat: -33.9215, lon: 151.0680 },
+  { name: "Punchbowl",        postcode: "2196", cbdMin: 28, line: "T3",    lat: -33.9271, lon: 151.0558 },
+  { name: "Bankstown",        postcode: "2200", cbdMin: 32, line: "T3",    lat: -33.9178, lon: 151.0349 },
 
-  // T8 Airport & South Line
-  { name: "Mascot",         postcode: "2020", cbdMin: 13, line: "T8" },
-  { name: "Wolli Creek",    postcode: "2205", cbdMin: 18, line: "T8" },
-  { name: "Arncliffe",      postcode: "2205", cbdMin: 20, line: "T8" },
-  { name: "Banksia",        postcode: "2216", cbdMin: 22, line: "T8" },
-  { name: "Rockdale",       postcode: "2216", cbdMin: 23, line: "T8" },
-  { name: "Kogarah",        postcode: "2217", cbdMin: 28, line: "T8" },
-  { name: "Hurstville",     postcode: "2220", cbdMin: 33, line: "T8" },
-  { name: "Penshurst",      postcode: "2222", cbdMin: 36, line: "T8" },
-  { name: "Mortdale",       postcode: "2223", cbdMin: 38, line: "T8" },
-  { name: "Oatley",         postcode: "2223", cbdMin: 39, line: "T8" },
+  // ── T4 Eastern Suburbs & Illawarra Line ──
+  { name: "Kings Cross",      postcode: "2011", cbdMin: 10, line: "T4",    lat: -33.8737, lon: 151.2254 },
+  { name: "Edgecliff",        postcode: "2027", cbdMin: 13, line: "T4",    lat: -33.8758, lon: 151.2350 },
+  { name: "Bondi Junction",   postcode: "2022", cbdMin: 18, line: "T4",    lat: -33.8916, lon: 151.2474 },
+  { name: "Kingsford",        postcode: "2032", cbdMin: 27, line: "T4/Bus" },
 
-  // T1 North Shore Line
-  { name: "North Sydney",   postcode: "2060", cbdMin: 8,  line: "T1" },
-  { name: "Waverton",       postcode: "2060", cbdMin: 10, line: "T1" },
-  { name: "Wollstonecraft", postcode: "2065", cbdMin: 12, line: "T1" },
-  { name: "St Leonards",    postcode: "2065", cbdMin: 14, line: "T1" },
-  { name: "Artarmon",       postcode: "2064", cbdMin: 17, line: "T1" },
-  { name: "Chatswood",      postcode: "2067", cbdMin: 20, line: "T1" },
-  { name: "Roseville",      postcode: "2069", cbdMin: 23, line: "T1" },
-  { name: "Lindfield",      postcode: "2070", cbdMin: 26, line: "T1" },
-  { name: "Killara",        postcode: "2071", cbdMin: 28, line: "T1" },
-  { name: "Gordon",         postcode: "2072", cbdMin: 30, line: "T1" },
-  { name: "Pymble",         postcode: "2073", cbdMin: 33, line: "T1" },
-  { name: "Turramurra",     postcode: "2074", cbdMin: 36, line: "T1" },
-  { name: "Warrawee",       postcode: "2074", cbdMin: 38, line: "T1" },
-  { name: "Wahroonga",      postcode: "2076", cbdMin: 39, line: "T1" },
+  // ── T8 Airport & South Line ──
+  { name: "Mascot",           postcode: "2020", cbdMin: 13, line: "T8",    lat: -33.9201, lon: 151.1958 },
+  { name: "Wolli Creek",      postcode: "2205", cbdMin: 18, line: "T8",    lat: -33.9484, lon: 151.1623 },
+  { name: "Arncliffe",        postcode: "2205", cbdMin: 20, line: "T8",    lat: -33.9411, lon: 151.1462 },
+  { name: "Banksia",          postcode: "2216", cbdMin: 22, line: "T8",    lat: -33.9488, lon: 151.1296 },
+  { name: "Rockdale",         postcode: "2216", cbdMin: 23, line: "T8",    lat: -33.9519, lon: 151.1349 },
+  { name: "Kogarah",          postcode: "2217", cbdMin: 28, line: "T8",    lat: -33.9636, lon: 151.1336 },
+  { name: "Hurstville",       postcode: "2220", cbdMin: 33, line: "T8",    lat: -33.9662, lon: 151.1023 },
+  { name: "Penshurst",        postcode: "2222", cbdMin: 36, line: "T8",    lat: -33.9668, lon: 151.0797 },
+  { name: "Mortdale",         postcode: "2223", cbdMin: 38, line: "T8",    lat: -33.9666, lon: 151.0714 },
+  { name: "Oatley",           postcode: "2223", cbdMin: 39, line: "T8",    lat: -33.9741, lon: 151.0674 },
 
-  // T1 Western Line
-  { name: "Rhodes",         postcode: "2138", cbdMin: 29, line: "T1" },
-  { name: "Meadowbank",     postcode: "2114", cbdMin: 31, line: "T1" },
-  { name: "West Ryde",      postcode: "2114", cbdMin: 34, line: "T1" },
-  { name: "Eastwood",       postcode: "2122", cbdMin: 37, line: "T1" },
-  { name: "Epping",         postcode: "2121", cbdMin: 40, line: "T1" },
+  // ── T1 North Shore Line ──
+  { name: "Milsons Point",    postcode: "2061", cbdMin: 6,  line: "T1",    lat: -33.8494, lon: 151.2113 },
+  { name: "North Sydney",     postcode: "2060", cbdMin: 8,  line: "T1",    lat: -33.8400, lon: 151.2080 },
+  { name: "Waverton",         postcode: "2060", cbdMin: 10, line: "T1",    lat: -33.8321, lon: 151.2028 },
+  { name: "Wollstonecraft",   postcode: "2065", cbdMin: 12, line: "T1",    lat: -33.8254, lon: 151.2046 },
+  { name: "St Leonards",      postcode: "2065", cbdMin: 14, line: "T1",    lat: -33.8233, lon: 151.1968 },
+  { name: "Artarmon",         postcode: "2064", cbdMin: 17, line: "T1",    lat: -33.8147, lon: 151.1936 },
+  { name: "Chatswood",        postcode: "2067", cbdMin: 20, line: "T1",    lat: -33.7978, lon: 151.1853 },
+  { name: "Roseville",        postcode: "2069", cbdMin: 23, line: "T1",    lat: -33.7829, lon: 151.1767 },
+  { name: "Lindfield",        postcode: "2070", cbdMin: 26, line: "T1",    lat: -33.7754, lon: 151.1706 },
+  { name: "Killara",          postcode: "2071", cbdMin: 28, line: "T1",    lat: -33.7666, lon: 151.1671 },
+  { name: "Gordon",           postcode: "2072", cbdMin: 30, line: "T1",    lat: -33.7545, lon: 151.1531 },
+  { name: "Pymble",           postcode: "2073", cbdMin: 33, line: "T1",    lat: -33.7432, lon: 151.1404 },
+  { name: "Turramurra",       postcode: "2074", cbdMin: 36, line: "T1",    lat: -33.7280, lon: 151.1298 },
+  { name: "Warrawee",         postcode: "2074", cbdMin: 38, line: "T1",    lat: -33.7186, lon: 151.1218 },
+  { name: "Wahroonga",        postcode: "2076", cbdMin: 39, line: "T1",    lat: -33.7147, lon: 151.1193 },
+  { name: "Hornsby",          postcode: "2077", cbdMin: 45, line: "T1",    lat: -33.7034, lon: 151.0993 },
 
-  // T5 Cumberland Line
-  { name: "Auburn",         postcode: "2144", cbdMin: 28, line: "T5" },
-  { name: "Lidcombe",       postcode: "2141", cbdMin: 31, line: "T2/T5" },
-  { name: "Granville",      postcode: "2142", cbdMin: 32, line: "T5" },
-  { name: "Harris Park",    postcode: "2150", cbdMin: 34, line: "T5" },
-  { name: "Parramatta",     postcode: "2150", cbdMin: 36, line: "T1/T5" },
-  { name: "Wentworthville", postcode: "2145", cbdMin: 39, line: "T5" },
+  // ── T1 Western Line ──
+  { name: "Rhodes",           postcode: "2138", cbdMin: 29, line: "T1",    lat: -33.8265, lon: 151.0889 },
+  { name: "Meadowbank",       postcode: "2114", cbdMin: 31, line: "T1",    lat: -33.8226, lon: 151.0838 },
+  { name: "West Ryde",        postcode: "2114", cbdMin: 34, line: "T1",    lat: -33.8127, lon: 151.0906 },
+  { name: "Eastwood",         postcode: "2122", cbdMin: 37, line: "T1",    lat: -33.7919, lon: 151.0824 },
+  { name: "Epping",           postcode: "2121", cbdMin: 40, line: "T1",    lat: -33.7727, lon: 151.0818 },
+
+  // ── T5 Cumberland Line ──
+  { name: "Auburn",           postcode: "2144", cbdMin: 28, line: "T5",    lat: -33.8487, lon: 151.0332 },
+  { name: "Lidcombe",         postcode: "2141", cbdMin: 31, line: "T2/T5", lat: -33.8641, lon: 151.0442 },
+  { name: "Granville",        postcode: "2142", cbdMin: 32, line: "T5",    lat: -33.8325, lon: 150.9996 },
+  { name: "Harris Park",      postcode: "2150", cbdMin: 34, line: "T5",    lat: -33.8213, lon: 151.0050 },
+  { name: "Parramatta",       postcode: "2150", cbdMin: 36, line: "T1/T5", lat: -33.8151, lon: 151.0015 },
+  { name: "Wentworthville",   postcode: "2145", cbdMin: 39, line: "T5",    lat: -33.8108, lon: 150.9754 },
+
+  // ── Sydney Metro Northwest & City Southwest ──
+  { name: "Victoria Cross",   postcode: "2060", cbdMin: 12, line: "Metro", lat: -33.8382, lon: 151.2068 },
+  { name: "Crows Nest",       postcode: "2065", cbdMin: 14, line: "Metro", lat: -33.8279, lon: 151.2029 },
+  { name: "Norwest",          postcode: "2153", cbdMin: 35, line: "Metro NW", lat: -33.7227, lon: 150.9694 },
+  { name: "Hills Showground", postcode: "2154", cbdMin: 38, line: "Metro NW", lat: -33.7293, lon: 150.9988 },
+  { name: "Castle Hill",      postcode: "2154", cbdMin: 40, line: "Metro NW", lat: -33.7273, lon: 150.9812 },
+  { name: "Cherrybrook",      postcode: "2126", cbdMin: 43, line: "Metro NW", lat: -33.7350, lon: 151.0372 },
+  { name: "Macquarie Park",   postcode: "2113", cbdMin: 28, line: "Metro", lat: -33.7759, lon: 151.1183 },
+  { name: "Ryde",             postcode: "2112", cbdMin: 32, line: "Metro", lat: -33.8109, lon: 151.1013 },
+  { name: "Waterloo",         postcode: "2017", cbdMin: 8,  line: "Metro SW", lat: -33.8957, lon: 151.2048 },
+  { name: "Green Square",     postcode: "2017", cbdMin: 8,  line: "T4/Metro", lat: -33.9104, lon: 151.2017 },
+  { name: "Beaconsfield",     postcode: "2015", cbdMin: 10, line: "Metro SW" },
+  { name: "Alexandria",       postcode: "2015", cbdMin: 10, line: "T8/Metro" },
+
+  // ── Light Rail (L1/L2/L3) ──
+  { name: "Pyrmont",          postcode: "2009", cbdMin: 5,  line: "LR/Bus", lat: -33.8710, lon: 151.1925 },
+  { name: "Ultimo",           postcode: "2007", cbdMin: 6,  line: "LR/Bus", lat: -33.8773, lon: 151.1987 },
+  { name: "Chippendale",      postcode: "2008", cbdMin: 8,  line: "LR/Bus" },
+  { name: "Rozelle",          postcode: "2039", cbdMin: 15, line: "LR",    lat: -33.8646, lon: 151.1679 },
+  { name: "Lilyfield",        postcode: "2040", cbdMin: 18, line: "LR",    lat: -33.8686, lon: 151.1540 },
+  { name: "Lewisham West",    postcode: "2049", cbdMin: 20, line: "LR",    lat: -33.8946, lon: 151.1488 },
+  { name: "Randwick",         postcode: "2031", cbdMin: 22, line: "LR/Bus", lat: -33.9143, lon: 151.2342 },
+  { name: "Kensington",       postcode: "2033", cbdMin: 25, line: "LR/Bus", lat: -33.9043, lon: 151.2241 },
+
+  // ── Inner City — Bus / Walk ──
+  { name: "Surry Hills",      postcode: "2010", cbdMin: 10, line: "Bus" },
+  { name: "Darlinghurst",     postcode: "2010", cbdMin: 8,  line: "Bus/Walk" },
+  { name: "Woolloomooloo",    postcode: "2011", cbdMin: 8,  line: "Bus/Walk" },
+  { name: "Potts Point",      postcode: "2011", cbdMin: 12, line: "Bus" },
+  { name: "Elizabeth Bay",    postcode: "2011", cbdMin: 12, line: "Bus" },
+  { name: "Glebe",            postcode: "2037", cbdMin: 12, line: "Bus" },
+  { name: "Forest Lodge",     postcode: "2037", cbdMin: 14, line: "Bus" },
+  { name: "Annandale",        postcode: "2038", cbdMin: 15, line: "Bus" },
+  { name: "Tempe",            postcode: "2044", cbdMin: 14, line: "Bus" },
+  { name: "Eveleigh",         postcode: "2015", cbdMin: 7,  line: "T2/Walk" },
+
+  // ── Inner West — Bus / Ferry ──
+  { name: "Leichhardt",       postcode: "2040", cbdMin: 18, line: "Bus" },
+  { name: "Balmain",          postcode: "2041", cbdMin: 22, line: "Ferry/Bus" },
+  { name: "Balmain East",     postcode: "2041", cbdMin: 18, line: "Ferry" },
+  { name: "Haberfield",       postcode: "2045", cbdMin: 22, line: "Bus" },
+  { name: "Abbotsford",       postcode: "2046", cbdMin: 28, line: "Bus" },
+  { name: "Five Dock",        postcode: "2046", cbdMin: 30, line: "Bus" },
+  { name: "Drummoyne",        postcode: "2047", cbdMin: 22, line: "Ferry/Bus" },
+  { name: "Concord",          postcode: "2137", cbdMin: 30, line: "Bus" },
+  { name: "North Strathfield",postcode: "2137", cbdMin: 26, line: "T1" },
+  { name: "Homebush",         postcode: "2140", cbdMin: 27, line: "T1/T2" },
+  { name: "Homebush West",    postcode: "2140", cbdMin: 27, line: "Bus" },
+  { name: "Croydon Park",     postcode: "2133", cbdMin: 22, line: "Bus" },
+
+  // ── Eastern Suburbs — Bus / T4 ──
+  { name: "Paddington",       postcode: "2021", cbdMin: 15, line: "Bus" },
+  { name: "Woollahra",        postcode: "2025", cbdMin: 18, line: "Bus" },
+  { name: "Bondi",            postcode: "2026", cbdMin: 28, line: "Bus" },
+  { name: "Double Bay",       postcode: "2028", cbdMin: 22, line: "Bus/Ferry" },
+  { name: "Rose Bay",         postcode: "2029", cbdMin: 25, line: "Bus/Ferry" },
+  { name: "Vaucluse",         postcode: "2030", cbdMin: 35, line: "Bus" },
+  { name: "Coogee",           postcode: "2034", cbdMin: 35, line: "Bus" },
+  { name: "Maroubra",         postcode: "2035", cbdMin: 35, line: "Bus" },
+  { name: "Matraville",       postcode: "2036", cbdMin: 28, line: "Bus" },
+
+  // ── Lower North Shore — Bus / Ferry ──
+  { name: "Kirribilli",       postcode: "2061", cbdMin: 10, line: "Ferry/Bus" },
+  { name: "McMahons Point",   postcode: "2060", cbdMin: 10, line: "Ferry" },
+  { name: "Neutral Bay",      postcode: "2089", cbdMin: 18, line: "Bus/Ferry" },
+  { name: "Cremorne",         postcode: "2090", cbdMin: 22, line: "Bus" },
+  { name: "Mosman",           postcode: "2088", cbdMin: 30, line: "Bus/Ferry" },
+  { name: "Cremorne Point",   postcode: "2090", cbdMin: 20, line: "Ferry" },
+  { name: "Balmoral",         postcode: "2088", cbdMin: 32, line: "Bus" },
+  { name: "Willoughby",       postcode: "2068", cbdMin: 25, line: "Bus" },
+  { name: "Naremburn",        postcode: "2065", cbdMin: 18, line: "Bus" },
+  { name: "Cammeray",         postcode: "2062", cbdMin: 20, line: "Bus" },
+
+  // ── Northern Beaches — Ferry / Bus ──
+  { name: "Manly",            postcode: "2095", cbdMin: 30, line: "Ferry" },
+  { name: "Freshwater",       postcode: "2096", cbdMin: 40, line: "Bus" },
+  { name: "Dee Why",          postcode: "2099", cbdMin: 45, line: "Bus" },
+  { name: "Collaroy",         postcode: "2097", cbdMin: 50, line: "Bus" },
+  { name: "Narrabeen",        postcode: "2101", cbdMin: 55, line: "Bus" },
+  { name: "Mona Vale",        postcode: "2103", cbdMin: 60, line: "Bus" },
+
+  // ── South & South West ──
+  { name: "Kingsgrove",       postcode: "2208", cbdMin: 32, line: "T8/Bus" },
+  { name: "Beverly Hills",    postcode: "2209", cbdMin: 35, line: "Bus" },
+  { name: "Narwee",           postcode: "2209", cbdMin: 36, line: "T8" },
+  { name: "Bexley",           postcode: "2207", cbdMin: 30, line: "Bus" },
+  { name: "Bardwell Park",    postcode: "2207", cbdMin: 28, line: "T8" },
+  { name: "Turrella",         postcode: "2205", cbdMin: 19, line: "T8" },
+  { name: "Lakemba",          postcode: "2195", cbdMin: 24, line: "T3" },
+  { name: "Riverwood",        postcode: "2210", cbdMin: 38, line: "T8" },
+  { name: "Peakhurst",        postcode: "2210", cbdMin: 40, line: "Bus" },
+
+  // ── Hills District & Western Sydney ──
+  { name: "Bella Vista",      postcode: "2153", cbdMin: 40, line: "Metro NW" },
+  { name: "Baulkham Hills",   postcode: "2153", cbdMin: 42, line: "Bus" },
+  { name: "Winston Hills",    postcode: "2153", cbdMin: 45, line: "Bus" },
+  { name: "Blacktown",        postcode: "2148", cbdMin: 47, line: "T1" },
+  { name: "Seven Hills",      postcode: "2147", cbdMin: 43, line: "T1" },
+  { name: "Pendle Hill",      postcode: "2145", cbdMin: 40, line: "T1" },
+  { name: "Toongabbie",       postcode: "2146", cbdMin: 42, line: "T1" },
+  { name: "Merrylands",       postcode: "2160", cbdMin: 38, line: "T5" },
+  { name: "Guildford",        postcode: "2161", cbdMin: 38, line: "T5" },
+  { name: "Fairfield",        postcode: "2165", cbdMin: 45, line: "T5" },
+  { name: "Cabramatta",       postcode: "2166", cbdMin: 48, line: "T5" },
+  { name: "Liverpool",        postcode: "2170", cbdMin: 55, line: "T5" },
+  { name: "Campbelltown",     postcode: "2560", cbdMin: 65, line: "T8" },
+
+  // ── South West Corridor ──
+  { name: "Revesby",          postcode: "2212", cbdMin: 38, line: "T8" },
+  { name: "Padstow",          postcode: "2211", cbdMin: 36, line: "T8" },
+  { name: "Panania",          postcode: "2213", cbdMin: 40, line: "T8" },
+  { name: "East Hills",       postcode: "2213", cbdMin: 42, line: "T8" },
 ];
+
+// Postcode-indexed map for O(1) lookups
+const _suburbByPostcode = new Map();
+const _suburbByName = new Map();
+for (const s of SUBURBS) {
+  if (!_suburbByPostcode.has(s.postcode)) _suburbByPostcode.set(s.postcode, s);
+  _suburbByName.set(s.name.toLowerCase(), s);
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -78,21 +208,19 @@ function priceVal(str) {
   return m ? parseInt(m[1]) : 9999;
 }
 
-function matchSuburb(address, suburbs) {
+function matchSuburb(address, qualifying) {
   if (!address) return null;
   const addr = String(address);
-  // Use the LAST 4-digit number — Australian postcodes always appear at the end.
-  // Using the first match would incorrectly grab unit/street numbers like "1034/1 Smith St".
+  // Postcode first — use the LAST 4-digit number (avoids unit numbers like "1034/1 Smith St")
   const allPc = addr.match(/\b\d{4}\b/g);
   const postcode = allPc ? allPc[allPc.length - 1] : null;
   if (postcode) {
-    for (const s of suburbs) {
-      if (s.postcode === postcode) return s;
-    }
+    const s = _suburbByPostcode.get(postcode);
+    if (s && qualifying.includes(s)) return s;
   }
   // Fallback: suburb name surrounded by punctuation/word boundaries
   const lower = addr.toLowerCase();
-  for (const s of suburbs) {
+  for (const s of qualifying) {
     const n = s.name.toLowerCase();
     if (lower.includes(`, ${n},`) || lower.includes(`, ${n} nsw`) || lower.endsWith(`, ${n}`)) {
       return s;
@@ -101,11 +229,138 @@ function matchSuburb(address, suburbs) {
   return null;
 }
 
+// For agencies that only supply a suburb name (no postcode).
+function matchSuburbName(name, qualifying) {
+  if (!name) return null;
+  const s = _suburbByName.get(name.toLowerCase().trim());
+  return (s && qualifying.includes(s)) ? s : null;
+}
+
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
   'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
   'Accept-Language': 'en-AU,en-US;q=0.9,en;q=0.8',
 };
+
+// ─── Walk-to-station helpers ──────────────────────────────────────────────────
+// Haversine distance in metres between two lat/lon points.
+function haversineM(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const φ1 = lat1 * Math.PI / 180, φ2 = lat2 * Math.PI / 180;
+  const Δφ = (lat2 - lat1) * Math.PI / 180;
+  const Δλ = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(Δφ/2)**2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+// Average walking speed ≈ 80 m/min.
+function walkMin(lat1, lon1, lat2, lon2) {
+  return Math.round(haversineM(lat1, lon1, lat2, lon2) / 80);
+}
+
+// Find nearest station to a listing (only for suburbs with known station coords).
+function nearestStation(listingLat, listingLon) {
+  let best = null, bestM = Infinity;
+  for (const s of SUBURBS) {
+    if (s.lat == null) continue;
+    const m = haversineM(listingLat, listingLon, s.lat, s.lon);
+    if (m < bestM) { bestM = m; best = s; }
+  }
+  if (!best || bestM > 2500) return null; // >2.5 km is not walkable
+  return { station: best.name, walkMin: Math.round(bestM / 80), line: best.line };
+}
+
+// ─── Harcourts ────────────────────────────────────────────────────────────────
+// Server-rendered HTML on cloudhi.io platform. Paginated national feed;
+// we scrape 10 pages in parallel and filter by postcode.
+// Card structure: .property-item.card > .price / .address / img.property-thumbnail
+// ul.summary li span → beds, baths, parking (in order).
+
+async function scrapeHarcourtsPage(url, qualifying, maxPrice, minBeds) {
+  const resp = await fetch(url, {
+    headers: { ...HEADERS, Referer: 'https://harcourts.net/', Accept: 'text/html' },
+  });
+  if (!resp.ok) return [];
+
+  const results = [];
+  let cur = null;
+
+  await new HTMLRewriter()
+    .on('.property-item', {
+      element(el) {
+        cur = { price: '', address: '', url: '', image: null, bedrooms: null, bathrooms: null, parking: null };
+        el.onEndTag(() => {
+          const c = cur; cur = null;
+          if (!c?.price || !c?.address) return;
+          if (priceVal(c.price) > maxPrice) return;
+          if (minBeds > 0 && c.bedrooms !== null && c.bedrooms < minBeds) return;
+          const info = matchSuburb(c.address.trim(), qualifying);
+          if (!info) return;
+          results.push({
+            id: `harcourts-${encodeURIComponent(c.url)}`,
+            url: c.url || 'https://harcourts.net/au/listings/rent',
+            address: c.address.trim(),
+            suburb: info.name,
+            postcode: info.postcode,
+            price: c.price.trim(),
+            priceValue: priceVal(c.price),
+            bedrooms: c.bedrooms,
+            bathrooms: c.bathrooms,
+            parking: c.parking,
+            propertyType: '',
+            image: c.image,
+            cbdMin: info.cbdMin,
+            line: info.line,
+            source: 'Harcourts',
+          });
+        });
+      },
+    })
+    .on('a.card-link-url', {
+      element(el) {
+        if (!cur || cur.url) return;
+        const h = el.getAttribute('href') || '';
+        cur.url = h.startsWith('http') ? h : `https://harcourts.net${h}`;
+      },
+    })
+    .on('.price', {
+      text(c) { if (cur) cur.price += c.text; },
+    })
+    .on('.address', {
+      text(c) { if (cur) cur.address += c.text; },
+    })
+    .on('img.property-thumbnail', {
+      element(el) {
+        if (cur && !cur.image) {
+          cur.image = el.getAttribute('src') || el.getAttribute('data-src') || null;
+        }
+      },
+    })
+    .on('ul.summary li span', {
+      text(c) {
+        if (!cur) return;
+        const n = parseInt(c.text.trim());
+        if (isNaN(n)) return;
+        if (cur.bedrooms === null) cur.bedrooms = n;
+        else if (cur.bathrooms === null) cur.bathrooms = n;
+        else if (cur.parking === null) cur.parking = n;
+      },
+    })
+    .transform(resp)
+    .arrayBuffer();
+
+  return results;
+}
+
+async function scrapeHarcourts(qualifying, maxPrice, minBeds) {
+  const base = 'https://harcourts.net/au/listings/rent';
+  const p = new URLSearchParams({ minPrice: '0', maxPrice: String(maxPrice) });
+  const settled = await Promise.allSettled(
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(page =>
+      scrapeHarcourtsPage(`${base}?${p}&page=${page}`, qualifying, maxPrice, minBeds)
+    )
+  );
+  return settled.flatMap(r => r.status === 'fulfilled' ? r.value : []);
+}
 
 // ─── Elders Real Estate ───────────────────────────────────────────────────────
 // Server-rendered HTML — confirmed no bot protection.
@@ -459,6 +714,105 @@ async function scrapeLJHooker(qualifying, maxPrice, minBeds) {
   return settled.flatMap(r => r.status === 'fulfilled' ? r.value : []);
 }
 
+// ─── The Agency ───────────────────────────────────────────────────────────────
+// Server-rendered HTML (Agentbox/inspectre platform). No API needed.
+// 72 listings/page sorted A-Z by suburb. 3 pages = 216 listings covering all NSW.
+// Address: suburb + street separate spans → concatenated for matchSuburbName lookup.
+
+async function scrapeTheAgencyPage(url, qualifying, maxPrice, minBeds) {
+  const resp = await fetch(url, {
+    headers: { ...HEADERS, Referer: 'https://theagency.com.au/' },
+  });
+  if (!resp.ok) return [];
+
+  const results = [];
+  let cur = null;
+
+  await new HTMLRewriter()
+    .on('.propertyTile', {
+      element(el) {
+        if (el.getAttribute('data-property-category') !== 'residential') return;
+        cur = { url: '', suburb: '', street: '', price: '', image: null, bedrooms: null, bathrooms: null, parking: null };
+        el.onEndTag(() => {
+          const c = cur; cur = null;
+          if (!c?.price || !c?.suburb) return;
+          if (priceVal(c.price) > maxPrice) return;
+          if (minBeds > 0 && c.bedrooms !== null && c.bedrooms < minBeds) return;
+          const info = matchSuburbName(c.suburb, qualifying);
+          if (!info) return;
+          const address = [c.street.trim(), c.suburb.trim()].filter(Boolean).join(', ');
+          results.push({
+            id: `theagency-${encodeURIComponent(c.url)}`,
+            url: c.url || 'https://theagency.com.au/properties-for-lease',
+            address,
+            suburb: info.name,
+            postcode: info.postcode,
+            price: c.price.trim(),
+            priceValue: priceVal(c.price),
+            bedrooms: c.bedrooms,
+            bathrooms: c.bathrooms,
+            parking: c.parking,
+            propertyType: '',
+            image: c.image,
+            cbdMin: info.cbdMin,
+            line: info.line,
+            source: 'The Agency',
+          });
+        });
+      },
+    })
+    .on('a.propertyTile-anchor', {
+      element(el) { if (cur) cur.url = el.getAttribute('href') || ''; },
+    })
+    .on('.propertyTile-image', {
+      element(el) { if (cur && !cur.image) cur.image = el.getAttribute('data-bg-src') || null; },
+    })
+    .on('.propertyTile-address-suburb', {
+      text(c) { if (cur) cur.suburb += c.text; },
+    })
+    .on('.propertyTile-address-streetaddress', {
+      text(c) { if (cur) cur.street += c.text; },
+    })
+    .on('.propertyTile-pricetext', {
+      text(c) { if (cur) cur.price += c.text; },
+    })
+    .on('.propertyTile-icons-bed', {
+      text(c) {
+        if (!cur || cur.bedrooms !== null) return;
+        const m = c.text.match(/\d+/);
+        if (m) cur.bedrooms = parseInt(m[0]);
+      },
+    })
+    .on('.propertyTile-icons-bath', {
+      text(c) {
+        if (!cur || cur.bathrooms !== null) return;
+        const m = c.text.match(/\d+/);
+        if (m) cur.bathrooms = parseInt(m[0]);
+      },
+    })
+    .on('.propertyTile-icons-car', {
+      text(c) {
+        if (!cur || cur.parking !== null) return;
+        const m = c.text.match(/\d+/);
+        if (m) cur.parking = parseInt(m[0]);
+      },
+    })
+    .transform(resp)
+    .arrayBuffer();
+
+  return results;
+}
+
+async function scrapeTheAgency(qualifying, maxPrice, minBeds) {
+  const base = 'https://theagency.com.au/properties-for-lease?orderby=suburb';
+  const settled = await Promise.allSettled(
+    [1, 2, 3].map(page =>
+      scrapeTheAgencyPage(`${base}&page=${page}`, qualifying, maxPrice, minBeds)
+    )
+  );
+  return settled.flatMap(r => r.status === 'fulfilled' ? r.value : []);
+}
+
 // ─── Harris Tripp ─────────────────────────────────────────────────────────────
 // Small Inner West Sydney agency using WordPress + Easy Property Listings plugin.
 
@@ -513,6 +867,141 @@ async function scrapeHarrisTripp(qualifying, maxPrice, minBeds) {
       }
       return results;
     })
+  );
+  return settled.flatMap(r => r.status === 'fulfilled' ? r.value : []);
+}
+
+// ─── DiJones ──────────────────────────────────────────────────────────────────
+// Typesense search API discovered via browser network tab.
+// 569 NSW listings, includes lat/lng for walk-to-station calculation.
+// API key: public read-only key embedded in their Nuxt frontend.
+
+async function scrapeDiJones(qualifying, maxPrice, minBeds) {
+  const TS_URL = 'https://qt4boz9gv2hfa1kyp-1.a1.typesense.net/collections/listings/documents/search';
+  const TS_KEY = 'mnQJXe4UamfykRYdzVAVlr92WPYstsq8';
+  const headers = { 'x-typesense-api-key': TS_KEY, 'Content-Type': 'application/json' };
+
+  const settled = await Promise.allSettled(
+    [1, 2, 3, 4].map(async page => {
+      const params = new URLSearchParams({
+        q: '',
+        query_by: 'id_search',
+        filter_by: 'marketingStatus:Available',
+        per_page: '150',
+        page: String(page),
+      });
+      const resp = await fetch(`${TS_URL}?${params}`, { headers });
+      if (!resp.ok) return [];
+      const data = await resp.json();
+
+      const results = [];
+      for (const hit of data.hits || []) {
+        const doc = hit.document || {};
+        if (doc.type !== 'Lease') continue;
+        const pa = doc.propertyAddress || {};
+        if (pa.state !== 'NSW') continue;
+
+        const priceStr = doc.displayPrice || '';
+        const pv = doc.searchPrice || priceVal(priceStr);
+        if (pv > maxPrice) continue;
+
+        const beds = doc.beds ?? null;
+        if (minBeds > 0 && beds !== null && beds < minBeds) continue;
+
+        const address = [pa.streetAddress, pa.suburb || '', `NSW ${pa.postcode}`].filter(Boolean).join(', ');
+        const info = matchSuburb(address, qualifying);
+        if (!info) continue;
+
+        const geo = doc._geoloc;
+        let walkData = null;
+        if (geo?.lat && geo?.lng) walkData = nearestStation(geo.lat, geo.lng);
+
+        results.push({
+          id: `dijones-${doc.id || doc.slug}`,
+          url: `https://www.dijones.com.au/${doc.slug || ''}`,
+          address,
+          suburb: info.name,
+          postcode: pa.postcode,
+          price: priceStr,
+          priceValue: pv,
+          bedrooms: beds,
+          bathrooms: doc.bath ?? null,
+          parking: doc.cars ?? null,
+          propertyType: doc.propertyCategory || '',
+          image: doc.image || null,
+          cbdMin: info.cbdMin,
+          line: info.line,
+          source: 'DiJones',
+          walkMin: walkData?.walkMin ?? null,
+          walkStation: walkData?.station ?? null,
+        });
+      }
+      return results;
+    })
+  );
+  return settled.flatMap(r => r.status === 'fulfilled' ? r.value : []);
+}
+
+// ─── BresicWhitney ────────────────────────────────────────────────────────────
+// Gatsby/DatoCMS site. Listing data is embedded as double-encoded JSON in
+// window.__routerData inside <script> tags. We extract it via regex on raw HTML.
+// 85 inner-west/eastern suburbs properties.
+
+async function scrapeBresicWhitneyPage(url, qualifying, maxPrice, minBeds) {
+  const resp = await fetch(url, {
+    headers: { ...HEADERS, Referer: 'https://bresicwhitney.com.au/' },
+  });
+  if (!resp.ok) return [];
+
+  const text = await resp.text();
+  const results = [];
+
+  // The data is embedded as: \"address\":\"...\",\"slug\":\"...\",\"permalink\":\"...\",
+  // \"price\":\"...\",\"priceSearch\":N,...\"for\":\"lease\",\"beds\":N,\"baths\":N,\"allCarSpaces\":N
+  // In raw HTML bytes the escaped-JSON uses \" for every double-quote.
+  const re = /\\"address\\":\\"([^"\\]+)\\",\\"slug\\":\\"[^"\\]+\\",\\"permalink\\":\\"(\/rent\/[^"\\]+)\\",\\"price\\":\\"([^"\\]+)\\",\\"priceSearch\\":(\d+),\\"for\\":\\"([^"\\]+)\\"(?:[^}]*?)\\"beds\\":(\d+),\\"baths\\":(\d+),\\"allCarSpaces\\":(\d+)/g;
+
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const [, address, permalink, price, priceSearch, forType, bedsStr, bathsStr, carsStr] = m;
+    if (forType !== 'lease') continue;
+
+    const pv = parseInt(priceSearch, 10) || priceVal(price);
+    if (pv > maxPrice) continue;
+
+    const beds = parseInt(bedsStr, 10);
+    if (minBeds > 0 && !isNaN(beds) && beds < minBeds) continue;
+
+    const info = matchSuburb(address, qualifying);
+    if (!info) continue;
+
+    results.push({
+      id: `bw-${permalink.replace(/\//g, '-')}`,
+      url: `https://bresicwhitney.com.au${permalink}`,
+      address,
+      suburb: info.name,
+      postcode: info.postcode,
+      price,
+      priceValue: pv,
+      bedrooms: isNaN(beds) ? null : beds,
+      bathrooms: parseInt(bathsStr, 10) || null,
+      parking: parseInt(carsStr, 10) || null,
+      propertyType: '',
+      image: null,
+      cbdMin: info.cbdMin,
+      line: info.line,
+      source: 'BresicWhitney',
+    });
+  }
+  return results;
+}
+
+async function scrapeBresicWhitney(qualifying, maxPrice, minBeds) {
+  const base = 'https://bresicwhitney.com.au/lease?type=lease&sort=_createdAt_DESC';
+  const settled = await Promise.allSettled(
+    [1, 2, 3, 4, 5].map(page =>
+      scrapeBresicWhitneyPage(`${base}&page=${page}`, qualifying, maxPrice, minBeds)
+    )
   );
   return settled.flatMap(r => r.status === 'fulfilled' ? r.value : []);
 }
@@ -657,11 +1146,12 @@ select,input[type=number]{
       </select>
     </div>
     <div class="fg">
-      <label>Max CBD by train</label>
+      <label>Max commute to CBD</label>
       <select id="maxCbd">
         <option value="20">20 min</option>
         <option value="30">30 min</option>
         <option value="40" selected>40 min</option>
+        <option value="60">60 min</option>
       </select>
     </div>
     <button class="btn" id="searchBtn" onclick="doSearch()">Search</button>
@@ -669,8 +1159,8 @@ select,input[type=number]{
 </div>
 
 <div class="notice">
-  ⚡ Live listings from <strong>Harris Tripp</strong> (Ray White / Elders / LJ Hooker block automated access).
-  Only suburbs with heavy-rail within your chosen CBD time. Properties <strong>under $700/wk</strong> highlighted green.
+  ⚡ Live from <strong>Ray White · LJ Hooker · Elders · Harris Tripp · Harcourts · The Agency · DiJones · BresicWhitney</strong>.
+  All Greater Sydney — filter by commute time. Walk time to nearest station shown where available. Properties <strong>under $700/wk</strong> highlighted green.
 </div>
 
 <div class="err" id="errBox"></div>
@@ -691,7 +1181,7 @@ async function doSearch() {
   const maxCbd   = +document.getElementById('maxCbd').value;
 
   btn.disabled = true;
-  setGrid('<div class="state"><div class="spinner"></div>Scraping Ray White, Elders, LJ Hooker &amp; Harris Tripp…</div>');
+  setGrid('<div class="state"><div class="spinner"></div>Searching Ray White · LJ Hooker · Elders · Harris Tripp · Harcourts · The Agency · DiJones · BresicWhitney…</div>');
   document.getElementById('meta').style.display = 'none';
   document.getElementById('errBox').style.display = 'none';
 
@@ -762,9 +1252,12 @@ function renderCards(listings, maxPrice) {
       ? '<img src="' + l.image + '" alt="" loading="lazy" onerror="imgErr(this)">'
       : '<div class="thumb-ph">🏠</div>';
 
+    const walkBadge = l.walkMin != null
+      ? ' · <span style="color:var(--muted)">🚶 ' + l.walkMin + ' min to ' + (l.walkStation || 'stn') + '</span>'
+      : '';
     const transit = l.cbdMin
-      ? '🚉 <strong>' + l.cbdMin + ' min</strong> to CBD · ' + l.line
-      : '🚉 Train accessible';
+      ? '🚉 <strong>' + l.cbdMin + ' min</strong> to CBD · ' + l.line + walkBadge
+      : '🚉 ' + (l.line || 'Transit accessible') + walkBadge;
 
     return '<div class="card' + (isIdeal ? ' ideal' : '') + '">' +
       '<div class="thumb">' + img + '</div>' +
@@ -810,22 +1303,30 @@ export default {
 
       const maxPrice = Math.min(Math.max(parseInt(url.searchParams.get('maxPrice') || '600'), 100), 5000);
       const minBeds  = Math.max(parseInt(url.searchParams.get('minBeds') || '0'), 0);
-      const maxCbd   = Math.min(parseInt(url.searchParams.get('maxCbd') || '40'), 60);
+      const maxCbd   = Math.min(parseInt(url.searchParams.get('maxCbd') || '40'), 90);
 
       const qualifying = SUBURBS.filter(s => s.cbdMin <= maxCbd);
 
-      const [eldersR, rwR, ljhR, htR] = await Promise.allSettled([
+      const [eldersR, rwR, ljhR, htR, harcourtsR, theAgencyR, diJonesR, bwR] = await Promise.allSettled([
         scrapeElders(qualifying, maxPrice, minBeds),
         scrapeRayWhite(qualifying, maxPrice, minBeds),
         scrapeLJHooker(qualifying, maxPrice, minBeds),
         scrapeHarrisTripp(qualifying, maxPrice, minBeds),
+        scrapeHarcourts(qualifying, maxPrice, minBeds),
+        scrapeTheAgency(qualifying, maxPrice, minBeds),
+        scrapeDiJones(qualifying, maxPrice, minBeds),
+        scrapeBresicWhitney(qualifying, maxPrice, minBeds),
       ]);
 
       const all = [
-        ...(eldersR.status === 'fulfilled'  ? eldersR.value : []),
-        ...(rwR.status    === 'fulfilled'   ? rwR.value     : []),
-        ...(ljhR.status   === 'fulfilled'   ? ljhR.value    : []),
-        ...(htR.status    === 'fulfilled'   ? htR.value     : []),
+        ...(eldersR.status     === 'fulfilled' ? eldersR.value     : []),
+        ...(rwR.status         === 'fulfilled' ? rwR.value         : []),
+        ...(ljhR.status        === 'fulfilled' ? ljhR.value        : []),
+        ...(htR.status         === 'fulfilled' ? htR.value         : []),
+        ...(harcourtsR.status  === 'fulfilled' ? harcourtsR.value  : []),
+        ...(theAgencyR.status  === 'fulfilled' ? theAgencyR.value  : []),
+        ...(diJonesR.status    === 'fulfilled' ? diJonesR.value    : []),
+        ...(bwR.status         === 'fulfilled' ? bwR.value         : []),
       ];
 
       // Deduplicate by URL
