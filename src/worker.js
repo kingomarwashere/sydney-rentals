@@ -1599,6 +1599,7 @@ const APP_HTML = `<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>LJ Squatter — Sydney Rentals</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <style>
 :root{
   --bg:#0d1117;--surface:#161b22;--card:#1c2128;--border:#30363d;
@@ -1714,6 +1715,30 @@ select,input[type=number]{
 .suburb-card .sn{font-weight:500}
 .suburb-card .sm{color:var(--muted);font-size:.72rem;text-align:right}
 
+#mapView{display:none;height:calc(100vh - 108px);width:100%}
+#mapView.active{display:block}
+.leaflet-popup-content-wrapper{background:var(--card);border:1px solid var(--border);box-shadow:0 4px 16px rgba(0,0,0,.4);border-radius:8px;padding:0}
+.leaflet-popup-content{margin:0;color:var(--text)}
+.leaflet-popup-tip{background:var(--card)}
+.leaflet-popup-close-button{color:var(--muted) !important;top:6px !important;right:8px !important}
+.mp{padding:.65rem .8rem;min-width:200px}
+.mp-price{font-size:1.05rem;font-weight:700;margin-bottom:.2rem}
+.mp-price.g{color:var(--green)}.mp-price.a{color:var(--amber)}
+.mp-addr{font-size:.78rem;color:var(--muted);margin-bottom:.35rem;line-height:1.35}
+.mp-feats{font-size:.77rem;color:var(--muted);margin-bottom:.3rem}
+.mp-transit{font-size:.74rem;color:var(--muted);margin-bottom:.5rem}
+.mp-link{display:block;text-align:center;border:1px solid var(--border);color:var(--link);text-decoration:none;border-radius:5px;padding:.3rem;font-size:.75rem;font-weight:600}
+.mp-link:hover{background:rgba(88,166,255,.08)}
+.stn-popup{padding:.5rem .7rem;font-size:.78rem;font-weight:600;color:var(--text)}
+.stn-popup small{display:block;color:var(--muted);font-weight:400;font-size:.72rem}
+.btn-map{
+  background:var(--surface);color:var(--muted);border:1px solid var(--border);
+  padding:.4rem .8rem;border-radius:6px;font-size:.8rem;cursor:pointer;
+  transition:color .15s,border-color .15s,background .15s;white-space:nowrap;
+}
+.btn-map:hover{color:var(--text);border-color:var(--muted)}
+.btn-map.active{background:var(--blue-dim);color:var(--blue);border-color:var(--blue)}
+
 .btn-refresh{
   background:var(--surface);color:var(--muted);border:1px solid var(--border);
   padding:.4rem .8rem;border-radius:6px;font-size:.8rem;cursor:pointer;
@@ -1776,7 +1801,8 @@ select,input[type=number]{
       </select>
     </div>
     <button class="btn" id="searchBtn" onclick="doSearch()">Search</button>
-    <button class="btn-refresh" id="refreshBtn" onclick="doRefresh()" title="Re-scrape all Playwright agencies (requires refresh-server.cjs running locally)">↻ Refresh data</button>
+    <button class="btn-map" id="mapBtn" onclick="toggleMap()" title="Toggle map view">🗺 Map</button>
+    <button class="btn-refresh" id="refreshBtn" onclick="doRefresh()" title="Re-scrape all Playwright agencies">↻ Refresh data</button>
   </div>
 </div>
 
@@ -1794,12 +1820,126 @@ select,input[type=number]{
 
 <div class="err" id="errBox"></div>
 <div class="meta" id="meta" style="display:none"></div>
+<div id="mapView"></div>
 <div class="grid" id="grid">
   <div class="state"><div class="spinner"></div>Squatting across 16 agencies…</div>
 </div>
 
 <script data-cfasync="false">
 const IDEAL = 700;
+
+// ── Map ──────────────────────────────────────────────────────────────────────
+let _map = null, _mapReady = false, _lastListings = [], _lastStations = [];
+let _propLayer = null, _stnLayer = null;
+
+function _leafletReady() {
+  return typeof L !== 'undefined';
+}
+
+function _initMap() {
+  if (_map) return;
+  _map = L.map('mapView', { zoomControl: true, attributionControl: true })
+    .setView([-33.8688, 151.2093], 12);
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© <a href="https://carto.com/">CartoDB</a> © <a href="https://www.openstreetmap.org/copyright">OSM</a>',
+    subdomains: 'abcd', maxZoom: 19,
+  }).addTo(_map);
+
+  _mapReady = true;
+}
+
+function _plotMap() {
+  if (!_mapReady) return;
+  if (_propLayer) _map.removeLayer(_propLayer);
+  if (_stnLayer)  _map.removeLayer(_stnLayer);
+
+  // Station lookup by postcode for fallback coords
+  const stnByPostcode = {};
+  for (const s of _lastStations) stnByPostcode[s.postcode] = s;
+
+  // Station layer — blue circles
+  _stnLayer = L.layerGroup();
+  for (const s of _lastStations) {
+    if (!s.lat || !s.lon) continue;
+    L.circleMarker([s.lat, s.lon], {
+      radius: 5, color: '#58a6ff', fillColor: '#58a6ff',
+      fillOpacity: 0.9, weight: 1.5,
+    })
+      .bindPopup('<div class="stn-popup">🚉 ' + s.name + '<small>' + s.line + ' · ' + s.cbdMin + ' min to CBD</small></div>', { maxWidth: 200 })
+      .addTo(_stnLayer);
+  }
+  _stnLayer.addTo(_map);
+
+  // Property layer
+  _propLayer = L.layerGroup();
+  const bounds = [];
+
+  for (const l of _lastListings) {
+    let lat = l.lat, lng = l.lng;
+    // Fall back to suburb station coords with tiny jitter
+    if (!lat || !lng) {
+      const fb = stnByPostcode[l.postcode];
+      if (!fb || !fb.lat) continue;
+      lat = fb.lat + (Math.random() - 0.5) * 0.004;
+      lng = fb.lon + (Math.random() - 0.5) * 0.004;
+    }
+
+    const ideal = l.priceValue <= IDEAL;
+    const color = ideal ? '#2ea043' : '#d29922';
+
+    const beds  = l.bedrooms === 0 ? 'Studio' : l.bedrooms ? l.bedrooms + ' bd' : '';
+    const baths = l.bathrooms ? ' · ' + l.bathrooms + ' ba' : '';
+    const park  = l.parking   ? ' · ' + l.parking + ' pk'  : '';
+    const transit = l.cbdMin ? '🚉 ' + l.cbdMin + ' min · ' + (l.line || '') : '';
+
+    const popup = '<div class="mp">' +
+      '<div class="mp-price ' + (ideal ? 'g' : 'a') + '">' + (l.price || '—') + '</div>' +
+      '<div class="mp-addr">' + l.address + '</div>' +
+      (beds ? '<div class="mp-feats">' + beds + baths + park + '</div>' : '') +
+      (transit ? '<div class="mp-transit">' + transit + '</div>' : '') +
+      '<a class="mp-link" href="' + l.url + '" target="_blank" rel="noopener">View on ' + (l.source || 'listing') + ' →</a>' +
+      '</div>';
+
+    const marker = L.circleMarker([lat, lng], {
+      radius: 7, color: '#fff', weight: 1.5,
+      fillColor: color, fillOpacity: 0.9,
+    }).bindPopup(popup, { maxWidth: 260 });
+
+    marker.addTo(_propLayer);
+    bounds.push([lat, lng]);
+  }
+
+  _propLayer.addTo(_map);
+  if (bounds.length) _map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+}
+
+function toggleMap() {
+  const mapDiv  = document.getElementById('mapView');
+  const gridDiv = document.getElementById('grid');
+  const btn     = document.getElementById('mapBtn');
+  const active  = mapDiv.classList.toggle('active');
+
+  gridDiv.style.display = active ? 'none' : '';
+  btn.classList.toggle('active', active);
+  btn.textContent = active ? '☰ List' : '🗺 Map';
+
+  if (active) {
+    // Lazy-load Leaflet JS on first open
+    if (!_leafletReady()) {
+      const s = document.createElement('script');
+      s.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+      s.onload = () => { _initMap(); _plotMap(); };
+      document.head.appendChild(s);
+    } else {
+      _initMap();
+      _plotMap();
+    }
+    // Fix tile rendering after show
+    setTimeout(() => _map && _map.invalidateSize(), 50);
+  }
+}
+
 const REFRESH_URL = 'https://refresh.theradicalparty.com/refresh?token=5c20e3e24c231b48105cdb13c04fe0c648814d90';
 
 let refreshEs = null;
@@ -1880,7 +2020,10 @@ async function doSearch() {
     if (data.fallback) {
       renderFallback(data.suburbs || [], maxPrice, minBeds);
     } else {
-      renderCards(data.listings || [], maxPrice);
+      _lastListings = data.listings || [];
+      _lastStations = data.stations || [];
+      renderCards(_lastListings, maxPrice);
+      if (_mapReady) _plotMap();
     }
   } catch(e) {
     showErr('Network error — could not reach the search API.');
@@ -2043,6 +2186,11 @@ export default {
 
       listings.sort((a, b) => a.priceValue - b.priceValue);
 
+      // Station data for map overlay
+      const stations = qualifying
+        .filter(s => s.lat != null && s.lon != null)
+        .map(s => ({ name: s.name, postcode: s.postcode, lat: s.lat, lon: s.lon, line: s.line, cbdMin: s.cbdMin }));
+
       if (listings.length === 0) {
         const suburbs = qualifying.map(s => ({
           name: s.name, cbdMin: s.cbdMin, line: s.line,
@@ -2051,7 +2199,7 @@ export default {
         return new Response(JSON.stringify({ fallback: true, suburbs }), { headers });
       }
 
-      return new Response(JSON.stringify({ listings }), { headers });
+      return new Response(JSON.stringify({ listings, stations }), { headers });
     }
 
     return new Response(APP_HTML, {
@@ -2060,7 +2208,7 @@ export default {
         'Cache-Control': 'no-transform',
         // Block externally-injected scripts (Cloudflare Rocket Loader etc.)
         // that cause "Unexpected token 'class'" in Brave.
-        'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src * data: blob:; connect-src *; font-src *;",
+        'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src * data: blob:; connect-src *; font-src *; worker-src blob:;",
       },
     });
   },
