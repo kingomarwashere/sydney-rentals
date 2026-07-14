@@ -193,10 +193,20 @@ async function scrapeEldersPage(url, qualifying, maxPrice, minBeds) {
   return results;
 }
 
-async function scrapeElders() {
-  // Elders ignores all suburb/state URL params and returns only rural/regional AU stock.
-  // Zero Sydney metro results confirmed — skip to keep within CF 6-connection limit.
-  return [];
+async function scrapeElders(qualifying, maxPrice, minBeds) {
+  // Elders WP REST API doesn't expose listings. Their visible search page is server-rendered
+  // but ignores suburb/state URL params and serves all-AU stock. However, page 1 does
+  // occasionally contain a Sydney suburb — cheapest approach is still 3 broad pages.
+  const p = new URLSearchParams({ state: 'NSW' });
+  if (maxPrice < 5000) p.set('maxRent', maxPrice);
+  if (minBeds > 0) p.set('minBedrooms', minBeds);
+  const base = 'https://www.eldersrealestate.com.au/residential/rent/';
+  const settled = await Promise.allSettled(
+    [1, 2, 3].map(page =>
+      scrapeEldersPage(`${base}?${p}&page=${page}`, qualifying, maxPrice, minBeds)
+    )
+  );
+  return settled.flatMap(r => r.status === 'fulfilled' ? r.value : []);
 }
 
 // ─── Next.js __NEXT_DATA__ extractor ─────────────────────────────────────────
@@ -303,11 +313,88 @@ async function fetchNextJs(url, referer, source, baseUrl, qualifying) {
 }
 
 // ─── Ray White ────────────────────────────────────────────────────────────────
+// API discovered via browser network tab: POST https://raywhiteapi.ep.dynamics.net/v1/listings
+// apiKey is a public search key embedded in their frontend.
+// typeCode "REN" = Home For Rent (1942 NSW listings).
+// Sort by distance from Sydney CBD so inner suburbs appear first.
 
-async function scrapeRayWhite() {
-  // Ray White listing search is a client-side SPA — API calls are uninterceptable
-  // without executing JS. No accessible server-rendered data found.
-  return [];
+async function scrapeRayWhite(qualifying, maxPrice, minBeds) {
+  const API = 'https://raywhiteapi.ep.dynamics.net/v1/listings?apiKey=6625c417-067a-4a8e-8c1d-85c812d0fb25';
+  const rwHeaders = {
+    'Content-Type': 'application/json',
+    'Origin': 'https://www.raywhite.com',
+    'Referer': 'https://www.raywhite.com/',
+    'User-Agent': HEADERS['User-Agent'],
+    'sec-fetch-site': 'cross-site',
+    'sec-fetch-mode': 'cors',
+  };
+
+  const baseBody = {
+    stateCode: 'NSW',
+    countryCode: ['AU'],
+    typeCode: { in: ['REN'] },
+    statusCode: { in: ['CUR'] },
+    // Sort by proximity to inner-west (Newtown/Marrickville area) so target suburbs appear first
+    sort: [{ field: 'location', lat: -33.9050, lon: 151.1700, order: 'asc' }],
+    size: 50,
+  };
+
+  const settled = await Promise.allSettled(
+    [0, 50, 100, 150, 200].map(async from => {
+      const resp = await fetch(API, {
+        method: 'POST',
+        headers: rwHeaders,
+        body: JSON.stringify({ ...baseBody, from }),
+      });
+      if (!resp.ok) return [];
+      const data = await resp.json();
+
+      const results = [];
+      for (const item of data.data || []) {
+        const v = item.value || {};
+        const addr = v.address || {};
+        const postcode = addr.postCode || '';
+        const info = qualifying.find(s => s.postcode === postcode);
+        if (!info) continue;
+
+        const priceStr = v.displayPrice || '';
+        const pv = priceVal(priceStr);
+        if (pv > maxPrice) continue;
+
+        const beds = v.bedrooms ?? null;
+        if (minBeds > 0 && (beds === null || beds < minBeds)) continue;
+
+        const address = [
+          `${addr.streetNumber || ''} ${addr.streetName || ''}`.trim(),
+          addr.suburb, addr.stateCode, addr.postCode,
+        ].filter(Boolean).join(', ');
+
+        const prlLink = (v.links || []).find(l => l.code === 'PRL');
+        const image = v.images?.[0]?.url || null;
+
+        results.push({
+          id: `rw-${v.id || v.sourceId}`,
+          url: prlLink?.url || 'https://www.raywhite.com',
+          address,
+          suburb: info.name,
+          postcode,
+          price: priceStr,
+          priceValue: pv,
+          bedrooms: beds,
+          bathrooms: v.bathrooms ?? null,
+          parking: v.carSpaces ?? null,
+          propertyType: v.categories?.[0]?.category || '',
+          image,
+          cbdMin: info.cbdMin,
+          line: info.line,
+          source: 'Ray White',
+        });
+      }
+      return results;
+    })
+  );
+
+  return settled.flatMap(r => r.status === 'fulfilled' ? r.value : []);
 }
 
 // ─── LJ Hooker ────────────────────────────────────────────────────────────────
