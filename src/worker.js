@@ -1739,6 +1739,30 @@ select,input[type=number]{
 .btn-map:hover{color:var(--text);border-color:var(--muted)}
 .btn-map.active{background:var(--blue-dim);color:var(--blue);border-color:var(--blue)}
 
+.btn-more{
+  background:var(--surface);color:var(--muted);border:1px solid var(--border);
+  padding:.4rem .7rem;border-radius:6px;font-size:.8rem;cursor:pointer;
+  transition:color .15s,border-color .15s;white-space:nowrap;display:flex;align-items:center;gap:.3rem;
+}
+.btn-more:hover{color:var(--text);border-color:var(--muted)}
+.btn-more.active{color:var(--text);border-color:var(--muted)}
+.btn-more .badge{
+  background:var(--amber);color:#000;border-radius:999px;
+  font-size:.6rem;font-weight:700;padding:.05rem .32rem;min-width:1.1em;text-align:center;
+}
+.xfilters{
+  background:var(--surface);border-bottom:1px solid var(--border);
+  padding:.75rem 1.25rem;display:none;flex-wrap:wrap;gap:.7rem;align-items:flex-end;
+}
+.xfilters.open{display:flex}
+.xfilters .fg label{font-size:.63rem;color:var(--muted);text-transform:uppercase;letter-spacing:.07em}
+.xfilters select,.xfilters input[type=number]{width:110px}
+.xfilters input[type=checkbox]{width:auto;accent-color:var(--green);cursor:pointer;margin-right:.25rem}
+.xfilters .chk-label{display:flex;align-items:center;font-size:.82rem;cursor:pointer;color:var(--muted);gap:.1rem}
+.xfilters .chk-label:hover{color:var(--text)}
+.xreset{background:none;border:none;color:var(--muted);font-size:.75rem;cursor:pointer;text-decoration:underline;padding:0;align-self:flex-end;margin-left:auto}
+.xreset:hover{color:var(--text)}
+
 .btn-refresh{
   background:var(--surface);color:var(--muted);border:1px solid var(--border);
   padding:.4rem .8rem;border-radius:6px;font-size:.8rem;cursor:pointer;
@@ -1801,9 +1825,67 @@ select,input[type=number]{
       </select>
     </div>
     <button class="btn" id="searchBtn" onclick="doSearch()">Search</button>
+    <button class="btn-more" id="moreBtn" onclick="toggleMore()">Filters <span class="badge" id="moreBadge" style="display:none">0</span></button>
     <button class="btn-map" id="mapBtn" onclick="toggleMap()" title="Toggle map view">🗺 Map</button>
     <button class="btn-refresh" id="refreshBtn" onclick="doRefresh()" title="Re-scrape all Playwright agencies">↻ Refresh data</button>
   </div>
+</div>
+
+<div class="xfilters" id="xfilters">
+  <div class="fg">
+    <label>Sort by</label>
+    <select id="xSort" onchange="applyXFilters()">
+      <option value="price-asc">Price ↑</option>
+      <option value="price-desc">Price ↓</option>
+      <option value="commute">Commute ↑</option>
+      <option value="beds-desc">Beds ↓</option>
+    </select>
+  </div>
+  <div class="fg">
+    <label>Min price / wk</label>
+    <input type="number" id="xMinPrice" placeholder="$0" step="50" min="0" max="3000" oninput="applyXFilters()">
+  </div>
+  <div class="fg">
+    <label>Min bathrooms</label>
+    <select id="xMinBaths" onchange="applyXFilters()">
+      <option value="0">Any</option>
+      <option value="1">1+</option>
+      <option value="2">2+</option>
+    </select>
+  </div>
+  <div class="fg">
+    <label>Parking</label>
+    <select id="xParking" onchange="applyXFilters()">
+      <option value="0">Any</option>
+      <option value="1">1+</option>
+      <option value="2">2+</option>
+    </select>
+  </div>
+  <div class="fg">
+    <label>Property type</label>
+    <select id="xType" onchange="applyXFilters()">
+      <option value="">Any</option>
+      <option value="apartment">Apartment / Unit</option>
+      <option value="house">House</option>
+      <option value="townhouse">Townhouse</option>
+      <option value="studio">Studio</option>
+    </select>
+  </div>
+  <div class="fg">
+    <label>Max walk to station</label>
+    <select id="xWalk" onchange="applyXFilters()">
+      <option value="0">Any</option>
+      <option value="5">5 min</option>
+      <option value="10">10 min</option>
+      <option value="15">15 min</option>
+      <option value="20">20 min</option>
+    </select>
+  </div>
+  <div class="fg" style="justify-content:flex-end">
+    <label>&nbsp;</label>
+    <label class="chk-label"><input type="checkbox" id="xPhotos" onchange="applyXFilters()"> Photos only</label>
+  </div>
+  <button class="xreset" onclick="resetXFilters()">Reset filters</button>
 </div>
 
 <div class="refresh-drawer" id="refreshDrawer">
@@ -1938,6 +2020,94 @@ function toggleMap() {
     // Fix tile rendering after show
     setTimeout(() => _map && _map.invalidateSize(), 50);
   }
+}
+
+// ── Extra filters ────────────────────────────────────────────────────────────
+function toggleMore() {
+  const panel = document.getElementById('xfilters');
+  const btn   = document.getElementById('moreBtn');
+  panel.classList.toggle('open');
+  btn.classList.toggle('active', panel.classList.contains('open'));
+}
+
+function _xFilterDefaults() {
+  return {
+    sort: 'price-asc', minPrice: 0, minBaths: 0,
+    parking: 0, type: '', walk: 0, photos: false,
+  };
+}
+
+function _readXFilters() {
+  return {
+    sort:     document.getElementById('xSort').value,
+    minPrice: parseInt(document.getElementById('xMinPrice').value || '0') || 0,
+    minBaths: parseInt(document.getElementById('xMinBaths').value) || 0,
+    parking:  parseInt(document.getElementById('xParking').value) || 0,
+    type:     document.getElementById('xType').value,
+    walk:     parseInt(document.getElementById('xWalk').value) || 0,
+    photos:   document.getElementById('xPhotos').checked,
+  };
+}
+
+function _countActiveXFilters(f) {
+  const d = _xFilterDefaults();
+  return Object.keys(d).filter(k => String(f[k]) !== String(d[k])).length;
+}
+
+function applyXFilters() {
+  if (!_lastListings.length) return;
+  const f = _readXFilters();
+
+  // Update badge
+  const active = _countActiveXFilters(f);
+  const badge = document.getElementById('moreBadge');
+  badge.textContent = active;
+  badge.style.display = active ? '' : 'none';
+
+  let items = _lastListings.slice();
+
+  if (f.minPrice > 0)  items = items.filter(l => l.priceValue >= f.minPrice);
+  if (f.minBaths > 0)  items = items.filter(l => l.bathrooms != null && l.bathrooms >= f.minBaths);
+  if (f.parking  > 0)  items = items.filter(l => l.parking   != null && l.parking   >= f.parking);
+  if (f.photos)        items = items.filter(l => l.image);
+  if (f.walk     > 0)  items = items.filter(l => l.walkMin != null && l.walkMin <= f.walk);
+  if (f.type) {
+    const t = f.type.toLowerCase();
+    items = items.filter(l => {
+      const pt = (l.propertyType || '').toLowerCase();
+      if (t === 'apartment') return pt.includes('apart') || pt.includes('unit') || pt.includes('flat');
+      if (t === 'house')     return pt.includes('house') || pt.includes('home') || pt === 'semi detached';
+      if (t === 'townhouse') return pt.includes('town');
+      if (t === 'studio')    return pt.includes('studio');
+      return true;
+    });
+  }
+
+  const sortFn = {
+    'price-asc':  (a, b) => a.priceValue - b.priceValue,
+    'price-desc': (a, b) => b.priceValue - a.priceValue,
+    'commute':    (a, b) => (a.cbdMin || 99) - (b.cbdMin || 99),
+    'beds-desc':  (a, b) => (b.bedrooms || 0) - (a.bedrooms || 0),
+  };
+  items.sort(sortFn[f.sort] || sortFn['price-asc']);
+
+  const maxPrice = +document.getElementById('maxPrice').value || 900;
+  renderCards(items, maxPrice);
+  if (_mapReady) { const _saved = _lastListings; _lastListings = items; _plotMap(); _lastListings = _saved; }
+}
+
+function resetXFilters() {
+  document.getElementById('xSort').value     = 'price-asc';
+  document.getElementById('xMinPrice').value = '';
+  document.getElementById('xMinBaths').value = '0';
+  document.getElementById('xParking').value  = '0';
+  document.getElementById('xType').value     = '';
+  document.getElementById('xWalk').value     = '0';
+  document.getElementById('xPhotos').checked = false;
+  document.getElementById('moreBadge').style.display = 'none';
+  const maxPrice = +document.getElementById('maxPrice').value || 900;
+  renderCards(_lastListings, maxPrice);
+  if (_mapReady) _plotMap();
 }
 
 const REFRESH_URL = 'https://refresh.theradicalparty.com/refresh?token=5c20e3e24c231b48105cdb13c04fe0c648814d90';
