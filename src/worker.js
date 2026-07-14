@@ -1598,13 +1598,14 @@ const APP_HTML = `<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Find Me A Place — Sydney Train Rentals</title>
+<title>LJ Squatter — Sydney Rentals</title>
 <style>
 :root{
   --bg:#0d1117;--surface:#161b22;--card:#1c2128;--border:#30363d;
   --green:#2ea043;--green-dim:rgba(46,160,67,.15);
   --amber:#d29922;--amber-dim:rgba(210,153,34,.15);
   --blue:#58a6ff;--blue-dim:rgba(88,166,255,.15);
+  --red:#e5534b;--red-dim:rgba(229,83,75,.12);
   --text:#e6edf3;--muted:#8b949e;--link:#58a6ff;
 }
 *{box-sizing:border-box;margin:0;padding:0}
@@ -1615,8 +1616,10 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
   padding:.85rem 1.25rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap;
   position:sticky;top:0;z-index:10;
 }
-.brand{font-weight:700;font-size:1.1rem;white-space:nowrap;flex-shrink:0}
-.brand span{color:var(--green)}
+.brand{font-weight:800;font-size:1.1rem;white-space:nowrap;flex-shrink:0;letter-spacing:-.02em}
+.brand .lj{color:var(--red)}
+.brand .sq{color:var(--text)}
+.brand .tag{font-size:.62rem;font-weight:500;color:var(--muted);letter-spacing:.04em;text-transform:uppercase;margin-left:.4rem}
 .filters{display:flex;gap:.55rem;flex-wrap:wrap;align-items:flex-end;flex:1}
 .fg{display:flex;flex-direction:column;gap:.2rem}
 .fg label{font-size:.63rem;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;white-space:nowrap}
@@ -1633,8 +1636,8 @@ select,input[type=number]{
 .btn:disabled{opacity:.45;cursor:default}
 
 .notice{
-  background:var(--blue-dim);border-bottom:1px solid var(--border);
-  padding:.5rem 1.25rem;font-size:.77rem;color:var(--blue);
+  background:var(--red-dim);border-bottom:1px solid var(--border);
+  padding:.5rem 1.25rem;font-size:.77rem;color:var(--muted);
 }
 .meta{
   padding:.55rem 1.25rem;font-size:.79rem;color:var(--muted);
@@ -1748,7 +1751,7 @@ select,input[type=number]{
 <body>
 
 <div class="topbar">
-  <div class="brand">🚂 <span>Find Me A Place</span></div>
+  <div class="brand"><span class="lj">LJ</span><span class="sq"> Squatter</span><span class="tag">Sydney Rentals</span></div>
   <div class="filters">
     <div class="fg">
       <label>Max rent / week</label>
@@ -1786,14 +1789,13 @@ select,input[type=number]{
 </div>
 
 <div class="notice">
-  ⚡ Live from <strong>Ray White · LJ Hooker · Elders · Harris Tripp · Harcourts · The Agency · DiJones · BresicWhitney · Upstate · Belle Property · McGrath · First National · PRD · Morton · Century 21 · Raine & Horne</strong>.
-  All Greater Sydney — filter by commute time. Walk time to nearest station shown where available. Properties <strong>under $700/wk</strong> highlighted green.
+  Squatting on listings from <strong>Ray White · LJ Hooker · Elders · Harris Tripp · Harcourts · The Agency · DiJones · BresicWhitney · Upstate · Belle Property · McGrath · First National · PRD · Morton · Century 21 · Raine & Horne</strong> — all Greater Sydney, filtered by commute time. Properties <strong>under $700/wk</strong> highlighted.
 </div>
 
 <div class="err" id="errBox"></div>
 <div class="meta" id="meta" style="display:none"></div>
 <div class="grid" id="grid">
-  <div class="state"><div class="spinner"></div>Searching across Sydney…</div>
+  <div class="state"><div class="spinner"></div>Squatting across 16 agencies…</div>
 </div>
 
 <script data-cfasync="false">
@@ -1867,7 +1869,7 @@ async function doSearch() {
   const maxCbd   = +document.getElementById('maxCbd').value;
 
   btn.disabled = true;
-  setGrid('<div class="state"><div class="spinner"></div>Searching Ray White · LJ Hooker · Elders · Harris Tripp · Harcourts · The Agency · DiJones · BresicWhitney · McGrath…</div>');
+  setGrid('<div class="state"><div class="spinner"></div>Squatting across 16 agencies…</div>');
   document.getElementById('meta').style.display = 'none';
   document.getElementById('errBox').style.display = 'none';
 
@@ -1908,7 +1910,7 @@ function setMeta(html) {
 
 function renderCards(listings, maxPrice) {
   if (!listings.length) {
-    setGrid('<div class="state">🏠 No listings found — scrapers may be blocked or no matches exist. Try relaxing your filters.</div>');
+    setGrid('<div class="state">🏚️ No listings found — scrapers may be blocked or no matches exist. Try relaxing your filters.</div>');
     document.getElementById('meta').style.display = 'none';
     return;
   }
