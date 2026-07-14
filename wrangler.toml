@@ -4,3 +4,7 @@ compatibility_date = "2024-09-23"
 
 [[custom_domains]]
 pattern = "findmeaplace.bored.investments"
+
+[[kv_namespaces]]
+binding = "MCGRATH_CACHE"
+id = "10eb3102498e48c48a6d01b7f33af1d4"

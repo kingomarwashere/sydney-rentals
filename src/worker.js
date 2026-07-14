@@ -1234,6 +1234,60 @@ async function scrapeBresicWhitney(qualifying, maxPrice, minBeds) {
   return settled.flatMap(r => r.status === 'fulfilled' ? r.value : []);
 }
 
+// ─── McGrath (KV-backed) ──────────────────────────────────────────────────────
+// McGrath uses Vercel with TLS fingerprint validation — direct fetch from a CF
+// Worker gets 429. Instead we run mcgrath-v2.cjs (Playwright/Chromium) locally
+// and upload the result to KV. This function reads that cache and applies filters.
+
+async function scrapeMcGrath(qualifying, maxPrice, minBeds, env) {
+  if (!env?.MCGRATH_CACHE) return [];
+  const raw = await env.MCGRATH_CACHE.get('listings');
+  if (!raw) return [];
+
+  let data;
+  try { data = JSON.parse(raw); } catch { return []; }
+
+  const qualSet = new Set(qualifying.map(s => s.postcode));
+  const results = [];
+
+  for (const p of data.listings || []) {
+    const info = qualifying.find(s =>
+      s.postcode === p.postcode ||
+      s.name.toLowerCase() === (p.suburb || '').toLowerCase()
+    );
+    if (!info) continue;
+
+    const pv = p.priceValue || priceVal(p.price);
+    if (pv > maxPrice) continue;
+
+    const beds = p.bedrooms ?? null;
+    if (minBeds > 0 && beds !== null && beds < minBeds) continue;
+
+    const geo = (p.lat && p.lng) ? nearestStation(p.lat, p.lng) : null;
+
+    results.push({
+      id: p.id,
+      url: p.url || 'https://www.mcgrath.com.au/rent',
+      address: p.address || '',
+      suburb: info.name,
+      postcode: info.postcode,
+      price: p.price || '',
+      priceValue: pv,
+      bedrooms: beds,
+      bathrooms: p.bathrooms ?? null,
+      parking: p.parking ?? null,
+      propertyType: p.propertyType || '',
+      image: p.image || null,
+      cbdMin: info.cbdMin,
+      line: info.line,
+      source: 'McGrath',
+      walkMin: geo?.walkMin ?? null,
+      walkStation: geo?.station ?? null,
+    });
+  }
+  return results;
+}
+
 // ─── HTML ─────────────────────────────────────────────────────────────────────
 
 const APP_HTML = `<!DOCTYPE html>
@@ -1387,7 +1441,7 @@ select,input[type=number]{
 </div>
 
 <div class="notice">
-  ⚡ Live from <strong>Ray White · LJ Hooker · Elders · Harris Tripp · Harcourts · The Agency · DiJones · BresicWhitney · Upstate · Belle Property</strong>.
+  ⚡ Live from <strong>Ray White · LJ Hooker · Elders · Harris Tripp · Harcourts · The Agency · DiJones · BresicWhitney · Upstate · Belle Property · McGrath</strong>.
   All Greater Sydney — filter by commute time. Walk time to nearest station shown where available. Properties <strong>under $700/wk</strong> highlighted green.
 </div>
 
@@ -1409,7 +1463,7 @@ async function doSearch() {
   const maxCbd   = +document.getElementById('maxCbd').value;
 
   btn.disabled = true;
-  setGrid('<div class="state"><div class="spinner"></div>Searching Ray White · LJ Hooker · Elders · Harris Tripp · Harcourts · The Agency · DiJones · BresicWhitney…</div>');
+  setGrid('<div class="state"><div class="spinner"></div>Searching Ray White · LJ Hooker · Elders · Harris Tripp · Harcourts · The Agency · DiJones · BresicWhitney · McGrath…</div>');
   document.getElementById('meta').style.display = 'none';
   document.getElementById('errBox').style.display = 'none';
 
@@ -1520,7 +1574,7 @@ doSearch();
 // ─── Worker ───────────────────────────────────────────────────────────────────
 
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     const url = new URL(request.url);
 
     if (url.pathname === '/api/search') {
@@ -1535,7 +1589,7 @@ export default {
 
       const qualifying = SUBURBS.filter(s => s.cbdMin <= maxCbd);
 
-      const [eldersR, rwR, ljhR, htR, harcourtsR, theAgencyR, diJonesR, bwR, upstateR, belleR] = await Promise.allSettled([
+      const [eldersR, rwR, ljhR, htR, harcourtsR, theAgencyR, diJonesR, bwR, upstateR, belleR, mcgrathR] = await Promise.allSettled([
         scrapeElders(qualifying, maxPrice, minBeds),
         scrapeRayWhite(qualifying, maxPrice, minBeds),
         scrapeLJHooker(qualifying, maxPrice, minBeds),
@@ -1546,6 +1600,7 @@ export default {
         scrapeBresicWhitney(qualifying, maxPrice, minBeds),
         scrapeUpstate(qualifying, maxPrice, minBeds),
         scrapeBelleProperty(qualifying, maxPrice, minBeds),
+        scrapeMcGrath(qualifying, maxPrice, minBeds, env),
       ]);
 
       const all = [
@@ -1559,6 +1614,7 @@ export default {
         ...(bwR.status         === 'fulfilled' ? bwR.value         : []),
         ...(upstateR.status    === 'fulfilled' ? upstateR.value    : []),
         ...(belleR.status      === 'fulfilled' ? belleR.value      : []),
+        ...(mcgrathR.status    === 'fulfilled' ? mcgrathR.value    : []),
       ];
 
       // Deduplicate by URL
