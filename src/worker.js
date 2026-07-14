@@ -537,6 +537,8 @@ select,input[type=number]{
 <script data-cfasync="false">
 const IDEAL = 700;
 
+function imgErr(el){el.parentElement.innerHTML='<div class=thumb-ph>No photo</div>'}
+
 async function doSearch() {
   const btn = document.getElementById('searchBtn');
   const maxPrice = +document.getElementById('maxPrice').value || 600;
@@ -612,7 +614,7 @@ function renderCards(listings, maxPrice) {
     const park  = l.parking   ? ' · ' + l.parking + ' park'  : '';
 
     const img = l.image
-      ? '<img src="' + l.image + '" alt="" loading="lazy" onerror="this.parentElement.innerHTML=\'<div class=thumb-ph>No photo</div>\'">'
+      ? '<img src="' + l.image + '" alt="" loading="lazy" onerror="imgErr(this)">'
       : '<div class="thumb-ph">🏠</div>';
 
     const transit = l.cbdMin
