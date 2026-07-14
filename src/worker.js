@@ -305,13 +305,71 @@ async function fetchNextJs(url, referer, source, baseUrl, qualifying) {
 // ─── Ray White ────────────────────────────────────────────────────────────────
 
 async function scrapeRayWhite() {
-  // Ray White and LJ Hooker are both protected by CloudFront WAF — all requests return 403.
-  // Stub out to avoid consuming the CF 6-connection subrequest limit.
+  // Ray White listing search is a client-side SPA — API calls are uninterceptable
+  // without executing JS. No accessible server-rendered data found.
   return [];
 }
 
-async function scrapeLJHooker() {
-  return [];
+// ─── LJ Hooker ────────────────────────────────────────────────────────────────
+// API discovered by reading their AgentPoint JS bundle (assets.ljhooker.com).
+// Real endpoint: GET https://api01.ljx.com.au/website/search-v1
+// No auth required, CORS open. No working suburb filter → paginate + filter by postcode.
+
+async function scrapeLJHooker(qualifying, maxPrice, minBeds) {
+  const BASE = 'https://api01.ljx.com.au';
+  const ljhHeaders = {
+    'User-Agent': 'OpenAPI-Generator/prod/Javascript',
+    'Origin': 'https://www.ljhooker.com.au',
+  };
+
+  const settled = await Promise.allSettled(
+    [1, 2, 3, 4, 5].map(async page => {
+      const url = `${BASE}/website/search-v1?searchOrigin=residential-au&searchProfile=rent&state=nsw&orderBy=date-desc&limit=50&page=${page}`;
+      const resp = await fetch(url, { headers: ljhHeaders });
+      if (!resp.ok) return [];
+      const data = await resp.json();
+      if (!data.properties || !Array.isArray(data.properties)) return [];
+
+      const results = [];
+      for (const item of data.properties) {
+        const addr = item.address || {};
+        const postcode = addr.postcode || '';
+        const info = qualifying.find(s => s.postcode === postcode);
+        if (!info) continue;
+
+        const priceStr = item.priceDisplay || '';
+        const pv = priceVal(priceStr);
+        if (pv > maxPrice) continue;
+
+        const beds = item.bedrooms ?? null;
+        // Exclude non-residential (garages, parking) when a bedroom count is required
+        if (minBeds > 0 && (beds === null || beds < minBeds)) continue;
+
+        const address = [addr.address1, addr.suburb || info.name, `${addr.state || 'NSW'} ${postcode}`]
+          .filter(Boolean).join(', ');
+
+        results.push({
+          id: `ljh-${item.linkUrl || postcode + address}`,
+          url: item.linkUrl || 'https://www.ljhooker.com.au',
+          address,
+          suburb: info.name,
+          postcode,
+          price: priceStr,
+          priceValue: pv,
+          bedrooms: beds,
+          bathrooms: item.bathrooms ?? null,
+          parking: item.carspaces ?? item.parking ?? null,
+          propertyType: item.propertyType || '',
+          image: item.imageUrl || null,
+          cbdMin: info.cbdMin,
+          line: info.line,
+          source: 'LJ Hooker',
+        });
+      }
+      return results;
+    })
+  );
+  return settled.flatMap(r => r.status === 'fulfilled' ? r.value : []);
 }
 
 // ─── Harris Tripp ─────────────────────────────────────────────────────────────
