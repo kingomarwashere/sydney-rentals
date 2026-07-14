@@ -1798,7 +1798,7 @@ select,input[type=number]{
 
 <script data-cfasync="false">
 const IDEAL = 700;
-const REFRESH_URL = 'http://localhost:3939/refresh';
+const REFRESH_URL = 'https://refresh.theradicalparty.com/refresh?token=5c20e3e24c231b48105cdb13c04fe0c648814d90';
 
 let refreshEs = null;
 
@@ -1815,10 +1815,10 @@ async function doRefresh() {
 
   // Check server is up first
   try {
-    const check = await fetch('http://localhost:3939/status', { signal: AbortSignal.timeout(2000) });
+    const check = await fetch('https://refresh.theradicalparty.com/status', { signal: AbortSignal.timeout(4000) });
     if (!check.ok) throw new Error('server not ready');
   } catch {
-    alert('Refresh server not running.\n\nStart it with:\n  node /Users/maverick/.claude/mcp-servers/browser-gui/refresh-server.cjs');
+    alert('Refresh server unreachable — check that it is running on the VM (PM2: findmeaplace-refresh).');
     return;
   }
 
