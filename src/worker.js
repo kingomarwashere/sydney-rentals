@@ -1710,6 +1710,39 @@ select,input[type=number]{
 .suburb-card:hover{border-color:var(--link)}
 .suburb-card .sn{font-weight:500}
 .suburb-card .sm{color:var(--muted);font-size:.72rem;text-align:right}
+
+.btn-refresh{
+  background:var(--surface);color:var(--muted);border:1px solid var(--border);
+  padding:.4rem .8rem;border-radius:6px;font-size:.8rem;cursor:pointer;
+  transition:color .15s,border-color .15s;white-space:nowrap;
+}
+.btn-refresh:hover{color:var(--text);border-color:var(--muted)}
+.btn-refresh.running{color:var(--amber);border-color:var(--amber);animation:pulse 1.4s ease-in-out infinite}
+.btn-refresh.done-ok{color:var(--green);border-color:var(--green)}
+.btn-refresh.done-err{color:#ffa198;border-color:#ffa198}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+
+.refresh-drawer{
+  display:none;position:fixed;bottom:0;left:0;right:0;
+  background:var(--surface);border-top:1px solid var(--border);
+  max-height:40vh;overflow:hidden;z-index:100;
+  flex-direction:column;
+}
+.refresh-drawer.open{display:flex}
+.refresh-drawer-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:.5rem 1rem;border-bottom:1px solid var(--border);flex-shrink:0;
+  font-size:.82rem;font-weight:600;
+}
+.refresh-drawer-close{background:none;border:none;color:var(--muted);cursor:pointer;font-size:1.1rem;padding:.1rem .3rem}
+.refresh-drawer-close:hover{color:var(--text)}
+.refresh-log{
+  flex:1;overflow-y:auto;padding:.6rem 1rem;
+  font-family:'SF Mono',Consolas,monospace;font-size:.72rem;
+  color:var(--muted);line-height:1.5;
+}
+.refresh-log .ok{color:var(--green)}
+.refresh-log .err{color:#ffa198}
 </style>
 </head>
 <body>
@@ -1740,7 +1773,16 @@ select,input[type=number]{
       </select>
     </div>
     <button class="btn" id="searchBtn" onclick="doSearch()">Search</button>
+    <button class="btn-refresh" id="refreshBtn" onclick="doRefresh()" title="Re-scrape all Playwright agencies (requires refresh-server.cjs running locally)">↻ Refresh data</button>
   </div>
+</div>
+
+<div class="refresh-drawer" id="refreshDrawer">
+  <div class="refresh-drawer-header">
+    <span id="refreshTitle">Refreshing agency data…</span>
+    <button class="refresh-drawer-close" onclick="closeRefresh()">✕</button>
+  </div>
+  <div class="refresh-log" id="refreshLog"></div>
 </div>
 
 <div class="notice">
@@ -1756,6 +1798,65 @@ select,input[type=number]{
 
 <script data-cfasync="false">
 const IDEAL = 700;
+const REFRESH_URL = 'http://localhost:3939/refresh';
+
+let refreshEs = null;
+
+function closeRefresh() {
+  document.getElementById('refreshDrawer').classList.remove('open');
+  if (refreshEs) { refreshEs.close(); refreshEs = null; }
+}
+
+async function doRefresh() {
+  const btn = document.getElementById('refreshBtn');
+  const drawer = document.getElementById('refreshDrawer');
+  const log = document.getElementById('refreshLog');
+  const title = document.getElementById('refreshTitle');
+
+  // Check server is up first
+  try {
+    const check = await fetch('http://localhost:3939/status', { signal: AbortSignal.timeout(2000) });
+    if (!check.ok) throw new Error('server not ready');
+  } catch {
+    alert('Refresh server not running.\n\nStart it with:\n  node /Users/maverick/.claude/mcp-servers/browser-gui/refresh-server.cjs');
+    return;
+  }
+
+  if (refreshEs) { refreshEs.close(); refreshEs = null; }
+  log.innerHTML = '';
+  title.textContent = 'Refreshing agency data…';
+  btn.className = 'btn-refresh running';
+  btn.textContent = '↻ Running…';
+  drawer.classList.add('open');
+
+  refreshEs = new EventSource(REFRESH_URL);
+
+  refreshEs.addEventListener('log', e => {
+    const { line } = JSON.parse(e.data);
+    const el = document.createElement('div');
+    el.textContent = line;
+    if (/done|success|✓|===/.test(line)) el.className = 'ok';
+    if (/error|fail|429|403/i.test(line)) el.className = 'err';
+    log.appendChild(el);
+    log.scrollTop = log.scrollHeight;
+  });
+
+  refreshEs.addEventListener('done', e => {
+    const { ok } = JSON.parse(e.data);
+    refreshEs.close(); refreshEs = null;
+    btn.className = ok ? 'btn-refresh done-ok' : 'btn-refresh done-err';
+    btn.textContent = ok ? '✓ Data refreshed' : '✗ Refresh failed';
+    title.textContent = ok ? 'Refresh complete — reload search to see new data' : 'Refresh failed — check log';
+    setTimeout(() => { btn.className = 'btn-refresh'; btn.textContent = '↻ Refresh data'; }, 8000);
+  });
+
+  refreshEs.onerror = () => {
+    refreshEs.close(); refreshEs = null;
+    btn.className = 'btn-refresh done-err';
+    btn.textContent = '✗ Connection lost';
+    setTimeout(() => { btn.className = 'btn-refresh'; btn.textContent = '↻ Refresh data'; }, 5000);
+  };
+}
 
 function imgErr(el){el.parentElement.innerHTML='<div class=thumb-ph>No photo</div>'}
 
