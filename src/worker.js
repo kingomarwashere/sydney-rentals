@@ -871,6 +871,234 @@ async function scrapeHarrisTripp(qualifying, maxPrice, minBeds) {
   return settled.flatMap(r => r.status === 'fulfilled' ? r.value : []);
 }
 
+// ─── Shared CF bypass UA ─────────────────────────────────────────────────────
+// CF clearance cookies are tied to this User-Agent and expire July 2027.
+const CF_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
+const UPSTATE_CF  = 'YoF8eEHLqENTCsTmvLpKaw3UizCwGk4CSXls6KSc8_Y-1784041529-1.2.1.1-q1TI9Y_xgmq3cOuCTX7aLfT1.oxbyjmOhkPJTAq4S9xp8KTWFPxkcYQwN8igytyZPxjmxSLJTK55B4uUA72GPX_IlRaKukF9ScfDiNuWLFOY.i_12rAec3aQ1EevWIsuYuIkV.XnuWE31dkH_fNboc7b1TYyThUZinf_aTQNGyGO2LUwrxa5bTMX.wvsRjlMB.AyGwvLtMS70bgyVOOBH7U0ynWnOh8LITpTWm0HDrk6w5fCAL9iG5widnxTATL5V4y0iNO0DsNX7xercKl81WdSWsElnlJSlKirQpM1cxTgbwQkKtm2djSCU_yfYu0CkR6CCVEpXHI8TCt8LakjQg';
+const BELLE_CF    = 'hQzUtsiUViWWgP8q8G8hbtx6RwrdSCo2ZKMgHuKNsSQ-1784041572-1.2.1.1-_AGPTvLeDuN2NDySyRl21l0yMQwch2OJTJy5n5Vy5DFB9uV3Eh9Pg9EDRkXIzDZCE.00BEq1sRld5pimNyyPzXTr4_Y7gtvjg3p2fvAXfFLfvqOcnJjS8UBukPXY5exbZrwm1g1uvc.kSipuEP8phAHXZqHXin7e687qJJG42tx7gnDiAT3t6wx9eq1U.TabexSRh.aI6QiKEc72B21j2IR9cban_qc8OMWLalSXOcSQq3ODldT4R2K400WAqDLJTse8W4uadXHzAm3O2Stq5u2fTDUUj9r_pU9wrfRXbwpIflyQfpGjE7UK4qkL_0z9zRFw';
+
+// ─── Upstate ──────────────────────────────────────────────────────────────────
+// Northern Beaches agency (Manly, Dee Why, Collaroy etc).
+// WordPress + HiCaliber LaunchPad platform (WP REST API).
+// CF clearance obtained via Playwright — expires July 2027.
+// POST body captured exactly from browser network tab.
+
+async function scrapeUpstate(qualifying, maxPrice, minBeds) {
+  const body = JSON.stringify({
+    options: {
+      contentToDisplay: 'property_attributes,address,price,next_listing_event',
+      searchCategories: 'residential-lease',
+      order: 'desc',
+      orderby: 'price',
+      maxChars: 200,
+      postsPerPage: 50,
+      showSearchCount: 1,
+      paginationType: 'loadmore',
+      columns: 3,
+      layout: 1,
+      archive: 1,
+      ajax: 1,
+      id: 'propertylisting',
+      contentType: 'listing',
+    },
+    request: {},
+  });
+
+  const resp = await fetch('https://upstate.com.au/wp-json/rep/v1/listings', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'User-Agent': CF_UA,
+      'Referer': 'https://upstate.com.au/residential/rent/',
+      'Origin': 'https://upstate.com.au',
+      'Cookie': `cf_clearance=${UPSTATE_CF}`,
+      'sec-fetch-mode': 'cors',
+      'sec-fetch-site': 'same-origin',
+      'X-Requested-With': 'XMLHttpRequest',
+      'Accept': 'application/json, */*',
+    },
+    body,
+  });
+
+  if (!resp.ok) return [];
+
+  let data;
+  try { data = await resp.json(); } catch { return []; }
+  const htmlCards = data.data?.html || [];
+
+  const results = [];
+  for (const html of htmlCards) {
+    if (!html.includes('rep-is-lease')) continue;
+
+    // URL contains postcode in slug: /listing/address-suburb-nsw-XXXX-id/
+    const urlM = html.match(/href="(https:\/\/upstate\.com\.au\/listing\/[^"]+)"/);
+    if (!urlM) continue;
+    const url = urlM[1];
+
+    const pcM = url.match(/-nsw-(\d{4})-/);
+    if (!pcM) continue;
+    const postcode = pcM[1];
+    const info = qualifying.find(s => s.postcode === postcode);
+    if (!info) continue;
+
+    const addrM = html.match(/class="rep-property-address">([^<]+)</);
+    const priceM = html.match(/class="[^"]*lp-price[^"]*">\s*([^<]+)<\/div>/);
+    if (!priceM) continue;
+
+    const price = priceM[1].trim();
+    const pv = priceVal(price);
+    if (pv > maxPrice) continue;
+
+    // Beds/baths from attribute divs
+    const bedsM = html.match(/rep-bedroom[^>]*>\s*(\d+)/i);
+    const bathM = html.match(/rep-bathroom[^>]*>\s*(\d+)/i);
+    const carsM = html.match(/rep-carpark[^>]*>\s*(\d+)/i);
+    const beds = bedsM ? parseInt(bedsM[1]) : null;
+    if (minBeds > 0 && beds !== null && beds < minBeds) continue;
+
+    const imgM = html.match(/url\(([^)]+)\)/);
+
+    results.push({
+      id: `upstate-${url.split('/').filter(Boolean).pop()}`,
+      url,
+      address: (addrM ? addrM[1].trim() : '') + ', NSW ' + postcode,
+      suburb: info.name,
+      postcode,
+      price,
+      priceValue: pv,
+      bedrooms: beds,
+      bathrooms: bathM ? parseInt(bathM[1]) : null,
+      parking: carsM ? parseInt(carsM[1]) : null,
+      propertyType: '',
+      image: imgM ? imgM[1] : null,
+      cbdMin: info.cbdMin,
+      line: info.line,
+      source: 'Upstate',
+    });
+  }
+  return results;
+}
+
+// ─── Belle Property ───────────────────────────────────────────────────────────
+// Umbraco/4thMode PropVue platform. CF protected but clearance obtained via
+// Playwright (expires July 2027). /data/featured-listings returns HTML partials
+// with property cards. Postcode extracted from listing URL slug.
+
+async function scrapeBelleProperty(qualifying, maxPrice, minBeds) {
+  const body = JSON.stringify({
+    title: 'Properties available for rent.',
+    officeId: '', agentId: '',
+    switchTabOrder: false,
+    tabOrder: 'rent,rented',
+    viewAll: '',
+    featuredListingsExist: false,
+    currentSite: 'Belle Property',
+    SwiperDisplayType: null,
+    ListingUrlHref: null,
+    ImageLarge: null,
+    OffMarket: false,
+    IsAuthenticated: false,
+  });
+
+  const resp = await fetch('https://www.belleproperty.com/data/featured-listings', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'User-Agent': CF_UA,
+      'Referer': 'https://www.belleproperty.com/rent/',
+      'Origin': 'https://www.belleproperty.com',
+      'Cookie': `cf_clearance=${BELLE_CF}`,
+      'X-Requested-With': 'XMLHttpRequest',
+      'Accept': '*/*',
+    },
+    body,
+  });
+
+  if (!resp.ok) return [];
+
+  const results = [];
+  let cur = null;
+
+  await new HTMLRewriter()
+    .on('.property', {
+      element(el) {
+        cur = { url: '', postcode: '', image: null, suburb: '', address: '', price: '', bedrooms: null, bathrooms: null };
+        el.onEndTag(() => {
+          const c = cur; cur = null;
+          if (!c?.price || !c?.postcode) return;
+          const pv = priceVal(c.price);
+          if (pv > maxPrice) return;
+          if (minBeds > 0 && c.bedrooms !== null && c.bedrooms < minBeds) return;
+          const info = qualifying.find(s => s.postcode === c.postcode);
+          if (!info) return;
+          const address = [c.address.trim(), c.suburb.trim()].filter(Boolean).join(', ');
+          results.push({
+            id: `belle-${encodeURIComponent(c.url)}`,
+            url: c.url || 'https://www.belleproperty.com/rent/',
+            address,
+            suburb: info.name,
+            postcode: c.postcode,
+            price: c.price.trim(),
+            priceValue: pv,
+            bedrooms: c.bedrooms,
+            bathrooms: c.bathrooms,
+            parking: null,
+            propertyType: '',
+            image: c.image,
+            cbdMin: info.cbdMin,
+            line: info.line,
+            source: 'Belle Property',
+          });
+        });
+      },
+    })
+    .on('.property .image a', {
+      element(el) {
+        if (!cur) return;
+        const h = el.getAttribute('href') || '';
+        cur.url = h;
+        // Extract postcode from URL: /listings/15-364-bay-street-suburb-nsw-2216-id
+        const m = h.match(/-nsw-(\d{4})-/);
+        if (m) cur.postcode = m[1];
+      },
+    })
+    .on('.property .image', {
+      element(el) {
+        if (cur && !cur.image) {
+          const img = el.getAttribute('data-swiper-image') || '';
+          if (img) cur.image = img;
+        }
+      },
+    })
+    .on('.property .suburb a', {
+      text(c) { if (cur) cur.suburb += c.text; },
+    })
+    .on('.property .address', {
+      text(c) { if (cur) cur.address += c.text; },
+    })
+    .on('.property .price', {
+      text(c) { if (cur) cur.price += c.text; },
+    })
+    .on('.property .feature.bed', {
+      text(c) {
+        if (!cur) return;
+        const m = c.text.match(/\d+/);
+        if (m && cur.bedrooms === null) cur.bedrooms = parseInt(m[0]);
+      },
+    })
+    .on('.property .feature.bath', {
+      text(c) {
+        if (!cur) return;
+        const m = c.text.match(/\d+/);
+        if (m && cur.bathrooms === null) cur.bathrooms = parseInt(m[0]);
+      },
+    })
+    .transform(resp)
+    .arrayBuffer();
+
+  return results;
+}
+
 // ─── DiJones ──────────────────────────────────────────────────────────────────
 // Typesense search API discovered via browser network tab.
 // 569 NSW listings, includes lat/lng for walk-to-station calculation.
@@ -1159,7 +1387,7 @@ select,input[type=number]{
 </div>
 
 <div class="notice">
-  ⚡ Live from <strong>Ray White · LJ Hooker · Elders · Harris Tripp · Harcourts · The Agency · DiJones · BresicWhitney</strong>.
+  ⚡ Live from <strong>Ray White · LJ Hooker · Elders · Harris Tripp · Harcourts · The Agency · DiJones · BresicWhitney · Upstate · Belle Property</strong>.
   All Greater Sydney — filter by commute time. Walk time to nearest station shown where available. Properties <strong>under $700/wk</strong> highlighted green.
 </div>
 
@@ -1307,7 +1535,7 @@ export default {
 
       const qualifying = SUBURBS.filter(s => s.cbdMin <= maxCbd);
 
-      const [eldersR, rwR, ljhR, htR, harcourtsR, theAgencyR, diJonesR, bwR] = await Promise.allSettled([
+      const [eldersR, rwR, ljhR, htR, harcourtsR, theAgencyR, diJonesR, bwR, upstateR, belleR] = await Promise.allSettled([
         scrapeElders(qualifying, maxPrice, minBeds),
         scrapeRayWhite(qualifying, maxPrice, minBeds),
         scrapeLJHooker(qualifying, maxPrice, minBeds),
@@ -1316,6 +1544,8 @@ export default {
         scrapeTheAgency(qualifying, maxPrice, minBeds),
         scrapeDiJones(qualifying, maxPrice, minBeds),
         scrapeBresicWhitney(qualifying, maxPrice, minBeds),
+        scrapeUpstate(qualifying, maxPrice, minBeds),
+        scrapeBelleProperty(qualifying, maxPrice, minBeds),
       ]);
 
       const all = [
@@ -1327,6 +1557,8 @@ export default {
         ...(theAgencyR.status  === 'fulfilled' ? theAgencyR.value  : []),
         ...(diJonesR.status    === 'fulfilled' ? diJonesR.value    : []),
         ...(bwR.status         === 'fulfilled' ? bwR.value         : []),
+        ...(upstateR.status    === 'fulfilled' ? upstateR.value    : []),
+        ...(belleR.status      === 'fulfilled' ? belleR.value      : []),
       ];
 
       // Deduplicate by URL
