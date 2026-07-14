@@ -193,29 +193,10 @@ async function scrapeEldersPage(url, qualifying, maxPrice, minBeds) {
   return results;
 }
 
-async function scrapeElders(qualifying, maxPrice, minBeds) {
-  // Search per suburb so we don't drown in rural/interstate results from a broad NSW query.
-  // Batch 5 at a time to stay well under the CF subrequest limit.
-  const BATCH = 5;
-  const all = [];
-  for (let i = 0; i < qualifying.length; i += BATCH) {
-    const batch = qualifying.slice(i, i + BATCH);
-    const settled = await Promise.allSettled(
-      batch.map(s => {
-        const p = new URLSearchParams({ suburb: s.name, postcode: s.postcode, state: 'NSW' });
-        if (maxPrice < 5000) p.set('maxRent', maxPrice);
-        if (minBeds > 0) p.set('minBedrooms', minBeds);
-        return scrapeEldersPage(
-          `https://www.eldersrealestate.com.au/residential/rent/?${p}`,
-          qualifying,
-          maxPrice,
-          minBeds,
-        );
-      })
-    );
-    all.push(...settled.flatMap(r => r.status === 'fulfilled' ? r.value : []));
-  }
-  return all;
+async function scrapeElders() {
+  // Elders ignores all suburb/state URL params and returns only rural/regional AU stock.
+  // Zero Sydney metro results confirmed — skip to keep within CF 6-connection limit.
+  return [];
 }
 
 // ─── Next.js __NEXT_DATA__ extractor ─────────────────────────────────────────
@@ -323,95 +304,72 @@ async function fetchNextJs(url, referer, source, baseUrl, qualifying) {
 
 // ─── Ray White ────────────────────────────────────────────────────────────────
 
-async function scrapeRayWhite(qualifying, maxPrice, minBeds) {
-  const q = `maxRent=${maxPrice}${minBeds > 0 ? `&minBedrooms=${minBeds}` : ''}`;
-  return fetchNextJs(
-    `https://www.raywhite.com/rent/?state=NSW&${q}`,
-    'https://www.raywhite.com/',
-    'Ray White',
-    'https://www.raywhite.com',
-    qualifying,
-  ).catch(() => []);
+async function scrapeRayWhite() {
+  // Ray White and LJ Hooker are both protected by CloudFront WAF — all requests return 403.
+  // Stub out to avoid consuming the CF 6-connection subrequest limit.
+  return [];
 }
 
-// ─── LJ Hooker ────────────────────────────────────────────────────────────────
-
-async function scrapeLJHooker(qualifying, maxPrice, minBeds) {
-  const q = `maxPrice=${maxPrice}${minBeds > 0 ? `&minimumBedrooms=${minBeds}` : ''}`;
-  return fetchNextJs(
-    `https://www.ljhooker.com.au/residential-listing-search-results?searchProfile=rent&state=nsw&${q}`,
-    'https://www.ljhooker.com.au/',
-    'LJ Hooker',
-    'https://www.ljhooker.com.au',
-    qualifying,
-  ).catch(() => []);
+async function scrapeLJHooker() {
+  return [];
 }
 
 // ─── Harris Tripp ─────────────────────────────────────────────────────────────
 // Small Inner West Sydney agency using WordPress + Easy Property Listings plugin.
 
 async function scrapeHarrisTripp(qualifying, maxPrice, minBeds) {
-  // Harris Tripp uses a WordPress REST API discovered by reading their archive-listing.js.
-  // Endpoint: GET /wp-json/api/listings/all?suburb={slug}&paged=1
-  // Slug format: {suburb-name-lowercase-hyphenated}-nsw-{postcode}
-  // No status filter in URL — filter client-side by type/statusCaption.
+  // Harris Tripp WordPress REST API. Without a suburb param it returns all 8500+ listings
+  // sorted newest-first, 8 per page. ~75% are active rentals in our suburbs.
+  // 5 parallel pages = ~30 fresh listings in ~1s instead of 55 suburb requests in 12s.
   const BASE = 'https://www.harristripp.com.au';
   const htHeaders = { ...HEADERS, 'PageFrom': 'archive', 'Referer': `${BASE}/properties-for-rent/` };
 
-  const BATCH = 5;
-  const all = [];
+  const settled = await Promise.allSettled(
+    [1, 2, 3, 4, 5].map(async page => {
+      const resp = await fetch(`${BASE}/wp-json/api/listings/all?paged=${page}`, { headers: htHeaders });
+      if (!resp.ok) return [];
+      const data = await resp.json();
+      if (!data.results || !Array.isArray(data.results)) return [];
 
-  for (let i = 0; i < qualifying.length; i += BATCH) {
-    const batch = qualifying.slice(i, i + BATCH);
-    const settled = await Promise.allSettled(
-      batch.map(async s => {
-        const slug = `${s.name.toLowerCase().replace(/\s+/g, '-')}-nsw-${s.postcode}`;
-        const resp = await fetch(`${BASE}/wp-json/api/listings/all?suburb=${slug}&paged=1`, { headers: htHeaders });
-        if (!resp.ok) return [];
-        const data = await resp.json();
-        if (!data.results || !Array.isArray(data.results)) return [];
+      const results = [];
+      for (const item of data.results) {
+        if (item.type !== 'rental') continue;
+        if (item.statusCaption !== 'For Rent') continue;
+        if (item.propertyStatus !== 'current') continue;
 
-        const results = [];
-        for (const item of data.results) {
-          if (item.type !== 'rental') continue;
-          if (item.statusCaption !== 'For Rent') continue;
-          if (item.propertyStatus !== 'current') continue;
+        const address = item.address?.fullAddress || '';
+        const info = matchSuburb(address, qualifying);
+        if (!info) continue;
 
-          const address = item.address?.fullAddress || '';
-          const info = matchSuburb(address, qualifying);
-          if (!info) continue;
+        const priceStr = item.propertyPricing?.value || '';
+        const pv = priceVal(priceStr);
+        if (pv > maxPrice) continue;
 
-          const priceStr = item.propertyPricing?.value || '';
-          const pv = priceVal(priceStr);
-          if (pv > maxPrice) continue;
+        const beds = item.propertyBed ?? null;
+        if (minBeds > 0 && beds !== null && beds < minBeds) continue;
 
-          const beds = item.propertyBed ?? null;
-          if (minBeds > 0 && beds !== null && beds < minBeds) continue;
-
-          results.push({
-            id: `harris-${item.uniqueID || item.id}`,
-            url: item.link || `${BASE}/properties-for-rent/`,
-            address,
-            suburb: info.name,
-            postcode: info.postcode,
-            price: priceStr,
-            priceValue: pv,
-            bedrooms: beds,
-            bathrooms: item.propertyBath ?? null,
-            parking: item.propertyParking ?? null,
-            propertyType: item.propertyCategory || '',
-            image: item.propertyImage?.featured || null,
-            cbdMin: info.cbdMin,
-            line: info.line,
-            source: 'Harris Tripp',
-          });
-        }
-        return results;
-      })
-    );
-    all.push(...settled.flatMap(r => r.status === 'fulfilled' ? r.value : []));
-  }
-  return all;
+        results.push({
+          id: `harris-${item.uniqueID || item.id}`,
+          url: item.link || `${BASE}/properties-for-rent/`,
+          address,
+          suburb: info.name,
+          postcode: info.postcode,
+          price: priceStr,
+          priceValue: pv,
+          bedrooms: beds,
+          bathrooms: item.propertyBath ?? null,
+          parking: item.propertyParking ?? null,
+          propertyType: item.propertyCategory || '',
+          image: item.propertyImage?.featured || null,
+          cbdMin: info.cbdMin,
+          line: info.line,
+          source: 'Harris Tripp',
+        });
+      }
+      return results;
+    })
+  );
+  return settled.flatMap(r => r.status === 'fulfilled' ? r.value : []);
 }
 
 // ─── HTML ─────────────────────────────────────────────────────────────────────
@@ -542,14 +500,14 @@ select,input[type=number]{
   <div class="filters">
     <div class="fg">
       <label>Max rent / week</label>
-      <input type="number" id="maxPrice" value="600" step="50" min="200" max="2000">
+      <input type="number" id="maxPrice" value="900" step="50" min="200" max="3000">
     </div>
     <div class="fg">
       <label>Min bedrooms</label>
       <select id="minBeds">
         <option value="0">Studio / any</option>
-        <option value="1">1+</option>
-        <option value="2" selected>2+</option>
+        <option value="1" selected>1+</option>
+        <option value="2">2+</option>
         <option value="3">3+</option>
       </select>
     </div>
@@ -566,8 +524,8 @@ select,input[type=number]{
 </div>
 
 <div class="notice">
-  ⚡ Scraped live from <strong>Ray White · Elders · LJ Hooker · Harris Tripp</strong>.
-  Only suburbs with heavy-rail within your chosen CBD time. Properties <strong>under $450/wk</strong> highlighted green.
+  ⚡ Live listings from <strong>Harris Tripp</strong> (Ray White / Elders / LJ Hooker block automated access).
+  Only suburbs with heavy-rail within your chosen CBD time. Properties <strong>under $700/wk</strong> highlighted green.
 </div>
 
 <div class="err" id="errBox"></div>
@@ -577,7 +535,7 @@ select,input[type=number]{
 </div>
 
 <script data-cfasync="false">
-const IDEAL = 450;
+const IDEAL = 700;
 
 async function doSearch() {
   const btn = document.getElementById('searchBtn');
@@ -638,7 +596,7 @@ function renderCards(listings, maxPrice) {
 
   setMeta(
     '<span>' + listings.length + ' listings across ' + suburbs + ' suburbs</span>' +
-    (ideal ? '<span class="pill pill-green">⭐ ' + ideal + ' under $' + IDEAL + '/wk</span>' : '') +
+    (ideal ? '<span class="pill pill-green">⭐ ' + ideal + ' under $700/wk</span>' : '') +
     '<span class="pill pill-amber">Max $' + maxPrice + '/wk</span>' +
     '<span class="pill pill-blue">' + sources + '</span>'
   );
@@ -646,7 +604,7 @@ function renderCards(listings, maxPrice) {
   setGrid(listings.map(l => {
     const isIdeal    = l.priceValue <= IDEAL;
     const priceClass = isIdeal ? 'price green' : 'price amber';
-    const badge      = isIdeal ? '<span class="pill pill-green">⭐ Under $450</span>' : '';
+    const badge      = isIdeal ? '<span class="pill pill-green">⭐ Under $700</span>' : '';
     const srcBadge   = '<span class="pill pill-blue">' + (l.source || '') + '</span>';
 
     const beds  = l.bedrooms === 0 ? 'Studio' : l.bedrooms ? l.bedrooms + ' bed' : '? bed';
