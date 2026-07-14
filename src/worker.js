@@ -1234,6 +1234,253 @@ async function scrapeBresicWhitney(qualifying, maxPrice, minBeds) {
   return settled.flatMap(r => r.status === 'fulfilled' ? r.value : []);
 }
 
+// ─── First National ───────────────────────────────────────────────────────────
+// Zenu platform — server-rendered, no bot protection.
+// 94 listings/page, NSW-wide, we filter by postcode.
+// Card: .card.listing-card > a.card-wrapper (href has slug with postcode)
+//        .address.street-address | .address.suburb (text: "Suburb NSW POSTCODE")
+//        .property-attribute spans (bed, bath, car in DOM order) | .price | img.listing-image
+
+async function scrapeFirstNationalPage(url, qualifying, maxPrice, minBeds) {
+  const resp = await fetch(url, {
+    headers: {
+      'User-Agent': HEADERS['User-Agent'],
+      'Accept': 'text/html',
+      'Accept-Language': 'en-AU,en;q=0.9',
+      'Referer': 'https://www.firstnational.com.au/',
+    },
+  });
+  if (!resp.ok) return [];
+
+  const results = [];
+  let cur = null;
+  let attrIdx = 0;
+
+  await new HTMLRewriter()
+    .on('.listing-card', {
+      element(el) {
+        cur = { url: '', street: '', suburb: '', price: '', image: null, bedrooms: null, bathrooms: null, parking: null };
+        attrIdx = 0;
+        el.onEndTag(() => {
+          const c = cur; cur = null; attrIdx = 0;
+          if (!c?.price || !c?.suburb) return;
+          const pv = priceVal(c.price);
+          if (pv > maxPrice) return;
+          if (minBeds > 0 && c.bedrooms !== null && c.bedrooms < minBeds) return;
+
+          // Suburb div text: "Forster NSW 2428" or "Forster, NSW 2428"
+          const pcM = c.suburb.match(/\b(\d{4})\b/);
+          if (!pcM) return;
+          const postcode = pcM[1];
+          const info = qualifying.find(s => s.postcode === postcode);
+          if (!info) return;
+
+          results.push({
+            id: `fn-${encodeURIComponent(c.url || c.street)}`,
+            url: c.url ? `https://www.firstnational.com.au${c.url}` : 'https://www.firstnational.com.au',
+            address: [c.street.trim(), info.name, `NSW ${postcode}`].filter(Boolean).join(', '),
+            suburb: info.name,
+            postcode,
+            price: c.price.trim(),
+            priceValue: pv,
+            bedrooms: c.bedrooms,
+            bathrooms: c.bathrooms,
+            parking: c.parking,
+            propertyType: '',
+            image: c.image,
+            cbdMin: info.cbdMin,
+            line: info.line,
+            source: 'First National',
+          });
+        });
+      },
+    })
+    .on('a.card-wrapper', {
+      element(el) {
+        if (cur && !cur.url) cur.url = el.getAttribute('href') || '';
+      },
+    })
+    .on('img.listing-image', {
+      element(el) {
+        if (cur && !cur.image) cur.image = el.getAttribute('src') || null;
+      },
+    })
+    .on('.address.street-address', {
+      text(c) { if (cur) cur.street += c.text; },
+    })
+    .on('.address.suburb', {
+      text(c) { if (cur) cur.suburb += c.text; },
+    })
+    .on('.property-attribute', {
+      text(c) {
+        if (!cur) return;
+        const n = parseInt(c.text.trim());
+        if (isNaN(n)) return;
+        if (attrIdx === 0) cur.bedrooms = n;
+        else if (attrIdx === 1) cur.bathrooms = n;
+        else if (attrIdx === 2) cur.parking = n;
+        attrIdx++;
+      },
+    })
+    .on('.price', {
+      text(c) { if (cur) cur.price += c.text; },
+    })
+    .transform(resp)
+    .arrayBuffer();
+
+  return results;
+}
+
+async function scrapeFirstNational(qualifying, maxPrice, minBeds) {
+  const base = 'https://www.firstnational.com.au/pages/real-estate/results?listing_sale_method=rent&listing_category=residential&state=nsw';
+  const settled = await Promise.allSettled(
+    [1, 2, 3, 4, 5].map(page =>
+      scrapeFirstNationalPage(`${base}&page=${page}`, qualifying, maxPrice, minBeds)
+    )
+  );
+  return settled.flatMap(r => r.status === 'fulfilled' ? r.value : []);
+}
+
+// ─── PRD ──────────────────────────────────────────────────────────────────────
+// Listonce platform — server-rendered, no bot protection.
+// 16 listings/page, NSW-wide with all office types.
+// Card: article.property-card with data-url (contains NSWpostcode slug), data-bedrooms/bathrooms/parking/img
+//        .property-card__price | .property-card__address | .property-card__suburb
+
+async function scrapePRDPage(url, qualifying, maxPrice, minBeds) {
+  const resp = await fetch(url, {
+    headers: {
+      'User-Agent': HEADERS['User-Agent'],
+      'Accept': 'text/html',
+      'Referer': 'https://www.prd.com.au/',
+    },
+  });
+  if (!resp.ok) return [];
+
+  const results = [];
+  let cur = null;
+
+  await new HTMLRewriter()
+    .on('article.property-card', {
+      element(el) {
+        const dataUrl = el.getAttribute('data-url') || '';
+        const pcM = dataUrl.match(/-nsw-(\d{4})-/i);
+        if (!pcM) { cur = null; return; }
+        const postcode = pcM[1];
+        const info = qualifying.find(s => s.postcode === postcode);
+        if (!info) { cur = null; return; }
+
+        cur = {
+          url: dataUrl,
+          postcode,
+          info,
+          bedrooms: parseInt(el.getAttribute('data-bedrooms') || '') || null,
+          bathrooms: parseInt(el.getAttribute('data-bathrooms') || '') || null,
+          parking: parseInt(el.getAttribute('data-parking') || '') || null,
+          image: el.getAttribute('data-img') || null,
+          price: '', address: '', suburb: '',
+        };
+        el.onEndTag(() => {
+          const c = cur; cur = null;
+          if (!c?.price || !c?.url) return;
+          const pv = priceVal(c.price);
+          if (pv > maxPrice) return;
+          if (minBeds > 0 && c.bedrooms !== null && c.bedrooms < minBeds) return;
+          const address = [c.address.replace(/\s+/g, ' ').trim(), c.info.name, `NSW ${c.postcode}`].filter(Boolean).join(', ');
+          results.push({
+            id: `prd-${encodeURIComponent(c.url)}`,
+            url: c.url,
+            address,
+            suburb: c.info.name,
+            postcode: c.postcode,
+            price: c.price.trim(),
+            priceValue: pv,
+            bedrooms: c.bedrooms,
+            bathrooms: c.bathrooms,
+            parking: c.parking,
+            propertyType: '',
+            image: c.image,
+            cbdMin: c.info.cbdMin,
+            line: c.info.line,
+            source: 'PRD',
+          });
+        });
+      },
+    })
+    .on('.property-card__price', {
+      text(c) { if (cur) cur.price += c.text; },
+    })
+    .on('.property-card__address', {
+      text(c) { if (cur) cur.address += c.text + ' '; },
+    })
+    .transform(resp)
+    .arrayBuffer();
+
+  return results;
+}
+
+async function scrapePRD(qualifying, maxPrice, minBeds) {
+  const base = 'https://www.prd.com.au/corporate-search/?property_type_toggle=Residential&listing_type=Lease&property_status=Available&property_type=Residential';
+  const settled = await Promise.allSettled(
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(page =>
+      scrapePRDPage(`${base}&page=${page}`, qualifying, maxPrice, minBeds)
+    )
+  );
+  return settled.flatMap(r => r.status === 'fulfilled' ? r.value : []);
+}
+
+// ─── Morton (KV-backed) ───────────────────────────────────────────────────────
+// Morton is CF-protected — direct Worker fetch blocked.
+// Playwright scraper (morton-scrape.cjs) runs locally and uploads to KV.
+// Key: "morton" in MCGRATH_CACHE namespace.
+
+async function scrapeMorton(qualifying, maxPrice, minBeds, env) {
+  if (!env?.MCGRATH_CACHE) return [];
+  const raw = await env.MCGRATH_CACHE.get('morton');
+  if (!raw) return [];
+
+  let data;
+  try { data = JSON.parse(raw); } catch { return []; }
+
+  const results = [];
+  for (const p of data.listings || []) {
+    const info = qualifying.find(s =>
+      s.postcode === p.postcode ||
+      s.name.toLowerCase() === (p.suburb || '').toLowerCase()
+    );
+    if (!info) continue;
+
+    const pv = p.priceValue || priceVal(p.price);
+    if (pv > maxPrice) continue;
+
+    const beds = p.bedrooms ?? null;
+    if (minBeds > 0 && beds !== null && beds < minBeds) continue;
+
+    const geo = (p.lat && p.lng) ? nearestStation(p.lat, p.lng) : null;
+
+    results.push({
+      id: p.id,
+      url: p.url || 'https://www.morton.com.au/rent/properties-for-rent/',
+      address: p.address || '',
+      suburb: info.name,
+      postcode: info.postcode,
+      price: p.price || '',
+      priceValue: pv,
+      bedrooms: beds,
+      bathrooms: p.bathrooms ?? null,
+      parking: p.parking ?? null,
+      propertyType: p.propertyType || '',
+      image: p.image || null,
+      cbdMin: info.cbdMin,
+      line: info.line,
+      source: 'Morton',
+      walkMin: geo?.walkMin ?? null,
+      walkStation: geo?.station ?? null,
+    });
+  }
+  return results;
+}
+
 // ─── McGrath (KV-backed) ──────────────────────────────────────────────────────
 // McGrath uses Vercel with TLS fingerprint validation — direct fetch from a CF
 // Worker gets 429. Instead we run mcgrath-v2.cjs (Playwright/Chromium) locally
@@ -1441,7 +1688,7 @@ select,input[type=number]{
 </div>
 
 <div class="notice">
-  ⚡ Live from <strong>Ray White · LJ Hooker · Elders · Harris Tripp · Harcourts · The Agency · DiJones · BresicWhitney · Upstate · Belle Property · McGrath</strong>.
+  ⚡ Live from <strong>Ray White · LJ Hooker · Elders · Harris Tripp · Harcourts · The Agency · DiJones · BresicWhitney · Upstate · Belle Property · McGrath · First National · PRD · Morton</strong>.
   All Greater Sydney — filter by commute time. Walk time to nearest station shown where available. Properties <strong>under $700/wk</strong> highlighted green.
 </div>
 
@@ -1589,7 +1836,7 @@ export default {
 
       const qualifying = SUBURBS.filter(s => s.cbdMin <= maxCbd);
 
-      const [eldersR, rwR, ljhR, htR, harcourtsR, theAgencyR, diJonesR, bwR, upstateR, belleR, mcgrathR] = await Promise.allSettled([
+      const [eldersR, rwR, ljhR, htR, harcourtsR, theAgencyR, diJonesR, bwR, upstateR, belleR, mcgrathR, fnR, prdR, mortonR] = await Promise.allSettled([
         scrapeElders(qualifying, maxPrice, minBeds),
         scrapeRayWhite(qualifying, maxPrice, minBeds),
         scrapeLJHooker(qualifying, maxPrice, minBeds),
@@ -1601,6 +1848,9 @@ export default {
         scrapeUpstate(qualifying, maxPrice, minBeds),
         scrapeBelleProperty(qualifying, maxPrice, minBeds),
         scrapeMcGrath(qualifying, maxPrice, minBeds, env),
+        scrapeFirstNational(qualifying, maxPrice, minBeds),
+        scrapePRD(qualifying, maxPrice, minBeds),
+        scrapeMorton(qualifying, maxPrice, minBeds, env),
       ]);
 
       const all = [
@@ -1615,6 +1865,9 @@ export default {
         ...(upstateR.status    === 'fulfilled' ? upstateR.value    : []),
         ...(belleR.status      === 'fulfilled' ? belleR.value      : []),
         ...(mcgrathR.status    === 'fulfilled' ? mcgrathR.value    : []),
+        ...(fnR.status         === 'fulfilled' ? fnR.value         : []),
+        ...(prdR.status        === 'fulfilled' ? prdR.value        : []),
+        ...(mortonR.status     === 'fulfilled' ? mortonR.value     : []),
       ];
 
       // Deduplicate by URL
