@@ -1481,6 +1481,36 @@ async function scrapeMorton(qualifying, maxPrice, minBeds, env) {
   return results;
 }
 
+// ─── Century 21 (KV-backed) ───────────────────────────────────────────────────
+// JS-rendered Agentbox platform. Playwright scraper (century21-scrape.cjs) runs
+// locally and uploads to KV under "century21" key. Postcode in URL path.
+
+async function scrapeCentury21(qualifying, maxPrice, minBeds, env) {
+  if (!env?.MCGRATH_CACHE) return [];
+  const raw = await env.MCGRATH_CACHE.get('century21');
+  if (!raw) return [];
+  let data;
+  try { data = JSON.parse(raw); } catch { return []; }
+
+  const results = [];
+  for (const p of data.listings || []) {
+    const info = qualifying.find(s => s.postcode === p.postcode);
+    if (!info) continue;
+    const pv = p.priceValue || priceVal(p.price);
+    if (pv > maxPrice) continue;
+    const beds = p.bedrooms ?? null;
+    if (minBeds > 0 && beds !== null && beds < minBeds) continue;
+    results.push({
+      ...p,
+      suburb: info.name,
+      cbdMin: info.cbdMin,
+      line: info.line,
+      priceValue: pv,
+    });
+  }
+  return results;
+}
+
 // ─── McGrath (KV-backed) ──────────────────────────────────────────────────────
 // McGrath uses Vercel with TLS fingerprint validation — direct fetch from a CF
 // Worker gets 429. Instead we run mcgrath-v2.cjs (Playwright/Chromium) locally
@@ -1688,7 +1718,7 @@ select,input[type=number]{
 </div>
 
 <div class="notice">
-  ⚡ Live from <strong>Ray White · LJ Hooker · Elders · Harris Tripp · Harcourts · The Agency · DiJones · BresicWhitney · Upstate · Belle Property · McGrath · First National · PRD · Morton</strong>.
+  ⚡ Live from <strong>Ray White · LJ Hooker · Elders · Harris Tripp · Harcourts · The Agency · DiJones · BresicWhitney · Upstate · Belle Property · McGrath · First National · PRD · Morton · Century 21</strong>.
   All Greater Sydney — filter by commute time. Walk time to nearest station shown where available. Properties <strong>under $700/wk</strong> highlighted green.
 </div>
 
@@ -1836,7 +1866,7 @@ export default {
 
       const qualifying = SUBURBS.filter(s => s.cbdMin <= maxCbd);
 
-      const [eldersR, rwR, ljhR, htR, harcourtsR, theAgencyR, diJonesR, bwR, upstateR, belleR, mcgrathR, fnR, prdR, mortonR] = await Promise.allSettled([
+      const [eldersR, rwR, ljhR, htR, harcourtsR, theAgencyR, diJonesR, bwR, upstateR, belleR, mcgrathR, fnR, prdR, mortonR, c21R] = await Promise.allSettled([
         scrapeElders(qualifying, maxPrice, minBeds),
         scrapeRayWhite(qualifying, maxPrice, minBeds),
         scrapeLJHooker(qualifying, maxPrice, minBeds),
@@ -1851,6 +1881,7 @@ export default {
         scrapeFirstNational(qualifying, maxPrice, minBeds),
         scrapePRD(qualifying, maxPrice, minBeds),
         scrapeMorton(qualifying, maxPrice, minBeds, env),
+        scrapeCentury21(qualifying, maxPrice, minBeds, env),
       ]);
 
       const all = [
@@ -1868,6 +1899,7 @@ export default {
         ...(fnR.status         === 'fulfilled' ? fnR.value         : []),
         ...(prdR.status        === 'fulfilled' ? prdR.value        : []),
         ...(mortonR.status     === 'fulfilled' ? mortonR.value     : []),
+        ...(c21R.status        === 'fulfilled' ? c21R.value        : []),
       ];
 
       // Deduplicate by URL
