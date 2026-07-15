@@ -1734,8 +1734,17 @@ select:focus,input[type=number]:focus{border-color:var(--primary);box-shadow:0 0
 .suburb-card .sm{color:var(--sub);font-size:.68rem;text-align:right}
 
 /* ── Map ─────────────────────────────────────────────────────────────────────── */
-#mapView{display:none;height:calc(100vh - 108px);width:100%}
+#mapView{display:none;height:calc(100vh - 108px);width:100%;position:relative}
 #mapView.active{display:block}
+.map-x{
+  position:absolute;top:10px;right:10px;z-index:500;
+  background:rgba(0,0,0,.75);color:#fff;
+  border:1px solid var(--border);padding:.3rem .7rem;
+  cursor:pointer;font-size:.75rem;letter-spacing:.5px;text-transform:uppercase;
+  transition:border-color .2s,color .2s;
+}
+.map-x:hover{border-color:var(--primary);color:var(--primary)}
+[data-theme=light] .map-x{background:rgba(255,255,255,.85);color:#000}
 .leaflet-popup-content-wrapper{background:var(--bg2);border:1px solid var(--border);box-shadow:0 0 20px var(--primary-glow);border-radius:0;padding:0}
 .leaflet-popup-content{margin:0;color:var(--text)}
 .leaflet-popup-tip{background:var(--bg2)}
@@ -1897,7 +1906,9 @@ select:focus,input[type=number]:focus{border-color:var(--primary);box-shadow:0 0
 
 <div class="err" id="errBox"></div>
 <div class="meta" id="meta" style="display:none"></div>
-<div id="mapView"></div>
+<div id="mapView">
+  <button class="map-x" onclick="toggleMap()">✕ close map</button>
+</div>
 <div class="grid" id="grid">
   <div class="state"><div class="spinner"></div>Squatting across 16 agencies…</div>
 </div>
@@ -2013,7 +2024,6 @@ function toggleMap() {
 
   gridDiv.style.display = active ? 'none' : '';
   btn.classList.toggle('active', active);
-  btn.textContent = active ? '☰ List' : '🗺 Map';
 
   if (active) {
     // Lazy-load Leaflet JS on first open
